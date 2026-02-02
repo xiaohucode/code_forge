@@ -39,38 +39,65 @@
 
 
 <details>
-  <summary><h3>What's new in 7.0.0</h3></summary>
+  <summary><h3>What's new in 8.0.0</h3></summary>
   
-  - FEATURE: Added `LspClientCapabilities` class to selectively enable/disable LSP features during initialization.<br>
-      • `semanticHighlighting` — Enable/disable semantic token highlighting<br>
-      • `codeCompletion` — Enable/disable code completion suggestions<br>
-      • `hoverInfo` — Enable/disable hover documentation<br>
-      • `codeAction` — Enable/disable code actions and quick fixes<br>
-      • `signatureHelp` — Enable/disable signature help<br>
-      • `documentColor` — Enable/disable document color detection<br>
-      • `documentHighlight` — Enable/disable document highlighting<br>
-      • `codeFolding` — Enable/disable code folding<br>
-      • `inlayHint` — Enable/disable inlay hints<br>
-      • `goToDefinition` — Enable/disable "go to definition"<br>
-      • `rename` — Enable/disable symbol renaming<br>
-  - FEATURE: Added `deleteFoldRangeOnDeletingFirstLine` parameter to `CodeForge` widget as requested in [#24](https://github.com/heckmon/code_forge/issues/24). When set to `true`, deleting the entire first line of a folded block will delete the whole folded region.
-  - ENHANCEMENT: Mobile context menu toolbar now persists after "Select All" action.
-  - ENHANCEMENT: Repositioned code action bulb icon on mobile to avoid overlap with fold icons and gutter.
-  - ENHANCEMENT: LSP methods now check capability flags before executing, returning early with appropriate empty values when features are disabled.
-  - ENHANCEMENT: Dynamic capability building during LSP initialization — only enabled features are advertised to the language server.
-  - FEATURE: Inlay hints and color picker:<br>
-      - Added LSP inlay hints and Colour picker as requested in [#22](https://github.com/heckmon/code_forge/issues/22).<br><br>
-      Inlay hint demo: https://github.com/user-attachments/assets/658fd76f-5650-4374-b44d-58db69813e66 <br>
-      Color pciker demo: https://github.com/user-attachments/assets/a7e1795c-83ca-411f-9c1d-81c8d4949926
+  ### ✨ Major Features
 
-  - FEATURE: Added doucment highlight as requested in [#22](https://github.com/heckmon/code_forge/issues/22).<br>
-    - demo: https://github.com/user-attachments/assets/593a524f-f5d7-45af-b5a5-d67cc1ed95fa
+#### 🌍 RTL (Right-to-Left) Language Support
+- FEATURE: Added comprehensive RTL support for right-to-left languages (Arabic, Hebrew, etc.)
+  - Added `textDirection` parameter to `CodeForge` widget to control text layout direction
+  - Gutter automatically positions on the right side for RTL mode
+  - Text rendering properly aligned for RTL languages with full visual direction support
+  - Caret positioning and movement follow visual direction (not logical) for intuitive editing
+  - Selection highlighting works correctly for RTL text
+  - All UI elements (fold icons, line numbers, indentation guides) properly mirrored for RTL
+  - Bracket pair highlighting supports RTL
+  - Scroll behavior adapted for RTL layout
 
-  - FEATURE: Added arrow key navigation for LSP suggestions in mobile as requested in [#21](https://github.com/heckmon/code_forge/issues/21).<br>
-    - demo: https://github.com/user-attachments/assets/8237dbdb-ba36-490d-9db2-4ffe1e24da8a
+#### 🔤 RTL Text Input & Navigation
+- FEATURE: Arrow keys follow visual direction for RTL
+  - Left arrow visually moves left (logically moves right in RTL)
+  - Right arrow visually moves right (logically moves left in RTL)
+  - Home key moves to visual line start (line end in RTL)
+  - End key moves to visual line end (line start in RTL)
+  - Ctrl+Arrow word navigation follows visual direction for RTL
+- FEATURE: Arabic and Hebrew word detection for code completion
+  - Updated word pattern matching to include Arabic (U+0600-U+06FF), Extended Arabic (U+08A0-U+08FF), and Hebrew (U+0590-U+05FF) Unicode ranges
+  - LSP suggestions now work correctly for RTL languages
+  - Word cache includes RTL script characters
+  - Fold icons display correctly for RTL (< for folded, down arrow for unfolded)
 
-  - FIX: [#25](https://github.com/heckmon/code_forge/issues/25)
-  - FIX: Fixed action icon misposition in mobile as requested in [#23](https://github.com/heckmon/code_forge/issues/23)
+### 🎯 Hover Documentation Improvements
+- ENHANCEMENT: Improved hover popup positioning and visibility
+  - Hover documentation now positions above cursor if space is limited below
+  - Better width constraints and viewport-aware positioning
+  - Added hover content caching for improved performance
+  - Hover content is fetched asynchronously without blocking rendering
+  - Diagonal offset adjustment prevents hover from blocking cursor area
+- ENHANCEMENT: Hover triggered by tap on mobile/desktop now persists properly
+  - Added `onHoverSetByTap` callback for better tap-based hover handling
+  - Hover state properly managed to avoid flicker
+
+### 🔧 Code Improvements & Fixes
+- FIX: Auto-indentation now only triggers on single Enter key press
+  - Paste operations no longer re-indent pasted multi-line content incorrectly
+  - Only the first newline in pasted text triggers auto-indent
+- FIX: CCLS semantic highlighting refresh debouncing
+  - Added `_scheduleCclsRefresh` with 1 second debounce to avoid excessive document saves
+  - CCLS servers that use custom semantic token protocol now work more reliably
+- ENHANCEMENT: Better suggestion popup positioning
+  - Popup now positions above cursor when limited space below
+  - Horizontal alignment adjusted to stay within viewport
+  - Improved mobile responsiveness
+
+### 📊 Internal Changes
+- Modified paragraph style to respect textDirection property
+- Added RTL-aware cache invalidation for paragraph building
+- Improved caret info calculation for RTL text positioning
+- Enhanced text offset to line/char conversion for RTL
+- Selection handle positioning adapted for RTL layout
+- Ghost text (AI completion) positioning corrected for RTL
+- Inlay hints and document colors properly positioned for RTL
 </details>
 
 ## ✨ Why CodeForge?
@@ -98,47 +125,9 @@
 
 ## 🎬 Features
 
-<div style="display:flex; flex-wrap:wrap; gap:20px;">
-  <div style="flex: 0 1 50%; min-width:300px;">
-    <h3>🤖 AI Code Completion</h3>
-    <p>Intelligent code suggestions powered by AI models like Gemini. Auto, manual, or mixed completion modes with smart debouncing.</p>
-    <div style="text-align:center;">
-      <img src="https://raw.githubusercontent.com/heckmon/code_forge/refs/heads/main/gifs/cf_ai.gif" alt="AI Completion" height="555" width="555" />
-    </div>
-  </div>
+**View all features with live demos:** [CodeForge Features Showcase](https://heckmon.github.io/code_forge_demo/)
 
-  <div style="flex: 0 1 50%; min-width:300px;">
-    <h3>🔌 LSP Integration</h3>
-    <p>Full Language Server Protocol support with real-time diagnostics, hover documentation, Code Actions and semantic highlighting.</p>
-    <div style="text-align:center;">
-      <img src="https://raw.githubusercontent.com/heckmon/code_forge/refs/heads/dev/gifs/cf_lsp_new.gif" alt="LSP Integration" height="555" width="555" />
-    </div>
-  </div>
-
-  <div style="flex: 0 1 50%; min-width:300px;">
-    <h3>📁 Smart Code Folding</h3>
-    <p>Collapse and expand code blocks with visual indicators. Navigate large files with ease.</p>
-    <div style="text-align:center;">
-      <img src="https://raw.githubusercontent.com/heckmon/code_forge/refs/heads/main/gifs/cf_fold.gif" alt="Code Folding" height="555" width="555" />
-    </div>
-  </div>
-
-  <div style="flex: 0 1 50%; min-width:300px;">
-    <h3>🎨 Syntax Highlighting</h3>
-    <p>Beautiful syntax highlighting for 180+ languages with customizable themes and semantic token support.</p>
-    <div style="text-align:center;">
-      <img src="https://raw.githubusercontent.com/heckmon/code_forge/refs/heads/main/gifs/cf_themes.gif" alt="Syntax Highlighting" height="555" width="555" />
-    </div>
-  </div>
-  
-  <div style="flex: 0 1 50%; min-width:300px;">
-    <h3>🔍 Search and replace</h3>
-    <p>Search and replace words like in VSCode.</p>
-    <div style="text-align:center;">
-      <img src="https://raw.githubusercontent.com/heckmon/code_forge/refs/heads/main/gifs/findNreplace.gif" alt="Syntax Highlighting" height="555" width="555" />
-    </div>
-  </div>
-</div>
+To see working examples of all CodeForge features including AI Code Completion, LSP Integration, Smart Code Folding, Syntax Highlighting, Search and Replace, and RTL Language Support, visit the features showcase page above.
 
 ### 🌟 More Features
 
@@ -186,7 +175,7 @@ Add CodeForge to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  code_forge: ^7.0.0
+  code_forge: ^8.0.0
 ```
 
 Then run:

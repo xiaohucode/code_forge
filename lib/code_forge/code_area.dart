@@ -21,6 +21,8 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 
+const String _wordCharPattern = r'[\w\u0600-\u06FF\u08A0-\u08FF\u0590-\u05FF]';
+
 /// A highly customizable code editor widget for Flutter.
 ///
 /// [CodeForge] provides a feature-rich code editing experience with support for:
@@ -185,6 +187,15 @@ class CodeForge extends StatefulWidget {
   /// Defaults to [TextInputType.multiline]
   final TextInputType keyboardType;
 
+  /// The text direction for the editor's content.
+  ///
+  /// This determines the direction in which text is laid out and rendered.
+  /// For left-to-right languages like English, use [TextDirection.ltr].
+  /// For right-to-left languages like Arabic or Hebrew, use [TextDirection.rtl].
+  ///
+  /// Defaults to [TextDirection.ltr].
+  final TextDirection textDirection;
+
   /// If set to true, deleting the first line of a folded block will delete the entire folded region,
   /// else only the first line gets deleted and the rest of the block stays safe.
   /// Defauts to false.
@@ -224,6 +235,7 @@ class CodeForge extends StatefulWidget {
     this.enableSuggestions = true,
     this.enableKeyboardSuggestions = true,
     this.keyboardType = TextInputType.multiline,
+    this.textDirection = TextDirection.ltr,
     this.enableGutter = true,
     this.enableGutterDivider = false,
     this.deleteFoldRangeOnDeletingFirstLine = false,
@@ -254,6 +266,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
   late final HoverDetailsStyle _hoverDetailsStyle;
   late final ValueNotifier<List<dynamic>?> _suggestionNotifier;
   late final ValueNotifier<(Offset, Map<String, int>)?> _hoverNotifier;
+  late final ValueNotifier<Map<String, dynamic>?> _hoverContentNotifier;
   late final ValueNotifier<List<LspErrors>> _diagnosticsNotifier;
   late final ValueNotifier<LspSignatureHelps?> _lspSignatureNotifier;
   late final ValueNotifier<String?> _aiNotifier;
@@ -273,6 +286,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
   final _suggScrollController = ScrollController();
   final _actionScrollController = ScrollController();
   final Map<String, String> _suggestionDetailsCache = {};
+  final Map<String, Map<String, dynamic>> _hoverCache = {};
   late bool _readOnly;
   TextInputConnection? _connection;
   StreamSubscription? _lspResponsesSubscription;
@@ -284,6 +298,10 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
   int _sugSelIndex = 0, _actionSelIndex = 0;
   String? _selectedSuggestionMd;
   Timer? _hoverTimer;
+  bool _hoverSetByTap = false;
+  late final VoidCallback _signatureListener;
+  late final VoidCallback _hoverListener;
+  late final VoidCallback _isHoveringPopupListener;
 
   @override
   void initState() {
@@ -301,6 +319,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
     _lspActionNotifier = _controller.codeActionsNotifier;
     _lspSignatureNotifier = _controller.signatureNotifier;
     _hoverNotifier = ValueNotifier(null);
+    _hoverContentNotifier = ValueNotifier(null);
     _aiNotifier = ValueNotifier(null);
     _aiOffsetNotifier = ValueNotifier(null);
     _contextMenuOffsetNotifier = ValueNotifier(const Offset(-1, -1));
@@ -449,7 +468,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
           _connection = TextInput.attach(
             _controller,
             TextInputConfiguration(
-              readOnly: false,
+              readOnly: widget.readOnly,
               enableDeltaModel: true,
               enableSuggestions: widget.enableKeyboardSuggestions,
               inputType: widget.keyboardType,
@@ -518,15 +537,33 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
         _lspSignatureNotifier.value = null;
       }
 
-      if (_hoverNotifier.value != null && mounted) {
+      if (_hoverNotifier.value != null && mounted && !_hoverSetByTap) {
         _hoverTimer?.cancel();
         _hoverNotifier.value = null;
+        _hoverContentNotifier.value = null;
+      }
+
+      if (_hoverSetByTap) {
+        Future.delayed(const Duration(milliseconds: 100), () {
+          _hoverSetByTap = false;
+        });
       }
     };
 
     _controller.addListener(_controllerListener);
 
-    _lspSignatureNotifier.addListener(() {
+    _hoverListener = () {
+      final hov = _hoverNotifier.value;
+      if (hov != null && _controller.lspConfig != null) {
+        _fetchHoverContent(hov.$2);
+      } else {
+        _hoverContentNotifier.value = null;
+      }
+    };
+    _hoverNotifier.addListener(_hoverListener);
+
+    _signatureListener = () {
+      if (!mounted) return;
       if (_lspSignatureNotifier.value != null) {
         if (_lspSignatureNotifier.value!.parameters.isEmpty) {
           _lspSignatureNotifier.value = null;
@@ -536,13 +573,15 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
           return;
         }
       }
-    });
+    };
+    _lspSignatureNotifier.addListener(_signatureListener);
 
-    _isHoveringPopup.addListener(() {
+    _isHoveringPopupListener = () {
       if (!_isHoveringPopup.value && _hoverNotifier.value != null) {
         _hoverNotifier.value = null;
       }
-    });
+    };
+    _isHoveringPopup.addListener(_isHoveringPopupListener);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (widget.autoFocus) {
@@ -643,6 +682,80 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
     _lspActionOffsetNotifier.value = _offsetNotifier.value;
   }
 
+  Future<void> _fetchHoverContent(Map<String, int> lineChar) async {
+    final line = lineChar['line']!;
+    final character = lineChar['character']!;
+    final cacheKey = '$line:$character';
+
+    if (_hoverCache.containsKey(cacheKey)) {
+      if (_hoverNotifier.value != null &&
+          _hoverNotifier.value!.$2['line'] == line &&
+          _hoverNotifier.value!.$2['character'] == character) {
+        _hoverContentNotifier.value = _hoverCache[cacheKey];
+      }
+      return;
+    }
+
+    _hoverContentNotifier.value = null;
+
+    try {
+      String diagnosticMessage = '';
+      int severity = 0;
+      String hoverMessage = '';
+
+      final diagnostic = _diagnosticsNotifier.value.firstWhere((diag) {
+        final diagStartLine = diag.range['start']['line'] as int;
+        final diagEndLine = diag.range['end']['line'] as int;
+        final diagStartChar = diag.range['start']['character'] as int;
+        final diagEndChar = diag.range['end']['character'] as int;
+
+        if (line < diagStartLine || line > diagEndLine) {
+          return false;
+        }
+
+        if (line == diagStartLine && line == diagEndLine) {
+          return character >= diagStartChar && character < diagEndChar;
+        } else if (line == diagStartLine) {
+          return character >= diagStartChar;
+        } else if (line == diagEndLine) {
+          return character < diagEndChar;
+        } else {
+          return true;
+        }
+      }, orElse: () => LspErrors(severity: 0, range: {}, message: ''));
+
+      if (diagnostic.message.isNotEmpty) {
+        diagnosticMessage = diagnostic.message;
+        severity = diagnostic.severity;
+      }
+
+      if (_controller.lspConfig != null) {
+        hoverMessage = await _controller.lspConfig!.getHover(
+          _filePath!,
+          line,
+          character,
+        );
+      }
+
+      final result = {
+        'diagnostic': diagnosticMessage,
+        'severity': severity,
+        'hover': hoverMessage,
+      };
+
+      _hoverCache[cacheKey] = result;
+
+      if (_hoverNotifier.value != null &&
+          _hoverNotifier.value!.$2['line'] == line &&
+          _hoverNotifier.value!.$2['character'] == character) {
+        _hoverContentNotifier.value = result;
+      }
+    } catch (e) {
+      debugPrint('Error fetching hover content: $e');
+      _hoverContentNotifier.value = {};
+    }
+  }
+
   void _resetCursorBlink() {
     if (!mounted) return;
     _caretBlinkController.value = 1.0;
@@ -655,11 +768,15 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
   void dispose() {
     _controller.removeListener(_controllerListener);
     _controller.semanticTokens.removeListener(_semanticTokensListener);
+    _lspSignatureNotifier.removeListener(_signatureListener);
+    _hoverNotifier.removeListener(_hoverListener);
+    _isHoveringPopup.removeListener(_isHoveringPopupListener);
     _connection?.close();
     _lspResponsesSubscription?.cancel();
     _caretBlinkController.dispose();
     _lineHighlightController.dispose();
     _hoverNotifier.dispose();
+    _hoverContentNotifier.dispose();
     _aiNotifier.dispose();
     _aiOffsetNotifier.dispose();
     _contextMenuOffsetNotifier.dispose();
@@ -689,6 +806,26 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
       _suggestionNotifier.value = null;
     }
 
+    if (widget.textDirection == TextDirection.rtl) {
+      _controller.pressLetfArrowKey(isShiftPressed: withShift);
+    } else {
+      _moveSelectionRight(withShift);
+    }
+  }
+
+  void _handleArrowLeft(bool withShift) {
+    if (_suggestionNotifier.value != null) {
+      _suggestionNotifier.value = null;
+    }
+
+    if (widget.textDirection == TextDirection.rtl) {
+      _moveSelectionRight(withShift);
+    } else {
+      _controller.pressLetfArrowKey(isShiftPressed: withShift);
+    }
+  }
+
+  void _moveSelectionRight(bool withShift) {
     final sel = _controller.selection;
     final textLength = _controller.length;
 
@@ -709,6 +846,34 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
       _controller.setSelectionSilently(
         TextSelection.collapsed(offset: newOffset),
       );
+    }
+  }
+
+  void _handleHomeKey(bool withShift) {
+    if (_suggestionNotifier.value != null) {
+      _suggestionNotifier.value = null;
+    }
+
+    // For RTL, visual left end means end of line (high offset)
+    // For LTR, visual left end means start of line (low offset)
+    if (widget.textDirection == TextDirection.rtl) {
+      _controller.pressEndKey(isShiftPressed: withShift);
+    } else {
+      _controller.pressHomeKey(isShiftPressed: withShift);
+    }
+  }
+
+  void _handleEndKey(bool withShift) {
+    if (_suggestionNotifier.value != null) {
+      _suggestionNotifier.value = null;
+    }
+
+    // For RTL, visual right end means start of line (low offset)
+    // For LTR, visual right end means end of line (high offset)
+    if (widget.textDirection == TextDirection.rtl) {
+      _controller.pressHomeKey(isShiftPressed: withShift);
+    } else {
+      _controller.pressEndKey(isShiftPressed: withShift);
     }
   }
 
@@ -1013,7 +1178,9 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
     }
 
     final lineText = text.substring(lineStart, caret);
-    final wordMatches = RegExp(r'\w+|[^\w\s]+').allMatches(lineText).toList();
+    final wordMatches = RegExp(
+      '$_wordCharPattern+|[^$_wordCharPattern\\s]+',
+    ).allMatches(lineText).toList();
 
     int newOffset = lineStart;
     for (final match in wordMatches) {
@@ -1051,7 +1218,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
       return;
     }
 
-    final regex = RegExp(r'\w+|[^\w\s]+|\s+');
+    final regex = RegExp('$_wordCharPattern+|[^$_wordCharPattern\\s]+|\\s+');
     final matches = regex.allMatches(text, caret);
 
     int newOffset = caret;
@@ -1342,12 +1509,22 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                                   return KeyEventResult.handled;
                                                 case LogicalKeyboardKey
                                                     .arrowLeft:
-                                                  _moveWordLeft(true);
+                                                  if (widget.textDirection ==
+                                                      TextDirection.rtl) {
+                                                    _moveWordRight(true);
+                                                  } else {
+                                                    _moveWordLeft(true);
+                                                  }
                                                   _commonKeyFunctions();
                                                   return KeyEventResult.handled;
                                                 case LogicalKeyboardKey
                                                     .arrowRight:
-                                                  _moveWordRight(true);
+                                                  if (widget.textDirection ==
+                                                      TextDirection.rtl) {
+                                                    _moveWordLeft(true);
+                                                  } else {
+                                                    _moveWordRight(true);
+                                                  }
                                                   _commonKeyFunctions();
                                                   return KeyEventResult.handled;
                                                 default:
@@ -1450,12 +1627,22 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                                   return KeyEventResult.handled;
                                                 case LogicalKeyboardKey
                                                     .arrowLeft:
-                                                  _moveWordLeft(false);
+                                                  if (widget.textDirection ==
+                                                      TextDirection.rtl) {
+                                                    _moveWordRight(false);
+                                                  } else {
+                                                    _moveWordLeft(false);
+                                                  }
                                                   _commonKeyFunctions();
                                                   return KeyEventResult.handled;
                                                 case LogicalKeyboardKey
                                                     .arrowRight:
-                                                  _moveWordRight(false);
+                                                  if (widget.textDirection ==
+                                                      TextDirection.rtl) {
+                                                    _moveWordLeft(false);
+                                                  } else {
+                                                    _moveWordRight(false);
+                                                  }
                                                   _commonKeyFunctions();
                                                   return KeyEventResult.handled;
                                                 case LogicalKeyboardKey.period:
@@ -1499,10 +1686,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                                   return KeyEventResult.handled;
                                                 case LogicalKeyboardKey
                                                     .arrowLeft:
-                                                  _controller.pressLetfArrowKey(
-                                                    isShiftPressed:
-                                                        isShiftPressed,
-                                                  );
+                                                  _handleArrowLeft(true);
                                                   _commonKeyFunctions();
                                                   return KeyEventResult.handled;
                                                 case LogicalKeyboardKey
@@ -1596,41 +1780,19 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                                 return KeyEventResult.handled;
 
                                               case LogicalKeyboardKey.arrowLeft:
-                                                _controller.pressLetfArrowKey(
-                                                  isShiftPressed:
-                                                      isShiftPressed,
+                                                _handleArrowLeft(
+                                                  isShiftPressed,
                                                 );
-                                                if (_suggestionNotifier.value !=
-                                                    null) {
-                                                  _suggestionNotifier.value =
-                                                      null;
-                                                }
                                                 _commonKeyFunctions();
                                                 return KeyEventResult.handled;
 
                                               case LogicalKeyboardKey.home:
-                                                if (_suggestionNotifier.value !=
-                                                    null) {
-                                                  _suggestionNotifier.value =
-                                                      null;
-                                                }
-                                                _controller.pressHomeKey(
-                                                  isShiftPressed:
-                                                      isShiftPressed,
-                                                );
+                                                _handleHomeKey(isShiftPressed);
                                                 _commonKeyFunctions();
                                                 return KeyEventResult.handled;
 
                                               case LogicalKeyboardKey.end:
-                                                if (_suggestionNotifier.value !=
-                                                    null) {
-                                                  _suggestionNotifier.value =
-                                                      null;
-                                                }
-                                                _controller.pressEndKey(
-                                                  isShiftPressed:
-                                                      isShiftPressed,
-                                                );
+                                                _handleEndKey(isShiftPressed);
                                                 _commonKeyFunctions();
                                                 return KeyEventResult.handled;
 
@@ -1724,6 +1886,8 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                           contextMenuOffsetNotifier:
                                               _contextMenuOffsetNotifier,
                                           hoverNotifier: _hoverNotifier,
+                                          hoverContentNotifier:
+                                              _hoverContentNotifier,
                                           lineWrap: widget.lineWrap,
                                           offsetNotifier: _offsetNotifier,
                                           aiNotifier: _aiNotifier,
@@ -1740,6 +1904,10 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                           signatureNotifier:
                                               _lspSignatureNotifier,
                                           filePath: _filePath,
+                                          textDirection: widget.textDirection,
+                                          onHoverSetByTap: () {
+                                            _hoverSetByTap = true;
+                                          },
                                         ),
                                       );
                                     },
@@ -1765,24 +1933,46 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                             return SizedBox.shrink();
                           }
                           final sigScrollCtrl = ScrollController();
+
+                          final desiredWidth = screenWidth < 700
+                              ? screenWidth * 0.63
+                              : 420.0;
+                          final maxBoxHeight = 400.0;
+                          final fontSize = widget.textStyle?.fontSize ?? 14;
+
+                          double adjustedLeft = offset.dx;
+                          if (adjustedLeft + desiredWidth > screenWidth) {
+                            adjustedLeft = screenWidth - desiredWidth;
+                          }
+                          if (adjustedLeft < 0) {
+                            adjustedLeft = 0;
+                          }
+
+                          final spaceBelow =
+                              editorHeight - offset.dy - fontSize - 10;
+                          final spaceAbove = offset.dy - 10;
+                          final shouldPositionAbove =
+                              maxBoxHeight > spaceBelow &&
+                              spaceAbove > maxBoxHeight;
+
+                          double? adjustedTop;
+                          double? adjustedBottom;
+
+                          if (shouldPositionAbove) {
+                            adjustedBottom = editorHeight - offset.dy + 10;
+                          } else {
+                            adjustedTop = offset.dy + fontSize + 10;
+                          }
+
                           return Positioned(
-                            width: screenWidth < 700
-                                ? screenWidth * 0.63
-                                : null,
-                            top:
-                                offset.dy +
-                                (widget.textStyle?.fontSize ?? 14) +
-                                10 +
-                                (screenWidth < 700
-                                    ? (offset.dy < screenHeight / 2)
-                                          ? 0
-                                          : -150
-                                    : 0),
-                            left: offset.dx,
+                            width: desiredWidth,
+                            top: adjustedTop,
+                            bottom: adjustedBottom,
+                            left: adjustedLeft,
                             child: ConstrainedBox(
                               constraints: BoxConstraints(
-                                maxWidth: 420,
-                                maxHeight: 400,
+                                maxWidth: desiredWidth,
+                                maxHeight: maxBoxHeight,
                                 minWidth: 70,
                               ),
                               child: Card(
@@ -2025,20 +2215,20 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                           final fontSize = widget.textStyle?.fontSize ?? 14;
                           final spaceBelow =
                               editorHeight - offset.dy - fontSize - 10;
-                          double adjustedTop;
-                          if (estimatedHeight > spaceBelow) {
-                            final spaceAbove = offset.dy - 10;
-                            if (spaceAbove >= estimatedHeight) {
-                              adjustedTop = offset.dy - estimatedHeight - 10;
-                            } else {
-                              adjustedTop = offset.dy + fontSize + 10;
-                            }
+                          final spaceAbove = offset.dy - 10;
+                          final shouldPositionAbove =
+                              estimatedHeight > spaceBelow &&
+                              spaceAbove > estimatedHeight;
+
+                          double? adjustedTop;
+                          double? adjustedBottom;
+
+                          if (shouldPositionAbove) {
+                            adjustedBottom = editorHeight - offset.dy + 10;
                           } else {
                             adjustedTop = offset.dy + fontSize + 10;
                           }
-                          if (adjustedTop < 0) {
-                            adjustedTop = 0;
-                          }
+
                           return ValueListenableBuilder(
                             valueListenable:
                                 _controller.selectedSuggestionNotifier,
@@ -2048,6 +2238,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                   Positioned(
                                     width: suggestionWidth,
                                     top: adjustedTop,
+                                    bottom: adjustedBottom,
                                     left: adjustedLeft,
                                     child: ConstrainedBox(
                                       constraints: BoxConstraints(
@@ -2489,91 +2680,45 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                         return SizedBox.shrink();
                       }
                       final Offset position = hov.$1;
-                      final Map<String, int> lineChar = hov.$2;
                       final width = _isMobile
                           ? screenWidth * 0.63
                           : screenWidth * 0.3;
                       final maxHeight = _isMobile ? screenHeight * 0.4 : 550.0;
 
+                      double adjustedLeft = position.dx;
+                      if (adjustedLeft + width > screenWidth) {
+                        adjustedLeft = screenWidth - width;
+                      }
+                      if (adjustedLeft < 0) {
+                        adjustedLeft = 0;
+                      }
+
+                      final spaceBelow = editorHeight - position.dy;
+                      final spaceAbove = position.dy - 10;
+                      final shouldPositionAbove =
+                          maxHeight > spaceBelow && spaceAbove > maxHeight;
+
+                      double? adjustedTop;
+                      double? adjustedBottom;
+
+                      if (shouldPositionAbove) {
+                        adjustedBottom = editorHeight - position.dy + 10;
+                      } else {
+                        adjustedTop = position.dy;
+                      }
+
                       return Positioned(
-                        top: position.dy,
-                        left: position.dx,
+                        top: adjustedTop,
+                        bottom: adjustedBottom,
+                        left: adjustedLeft,
+                        width: width,
                         child: MouseRegion(
                           onEnter: (_) => _isHoveringPopup.value = true,
                           onExit: (_) => _isHoveringPopup.value = false,
-                          child: FutureBuilder<Map<String, dynamic>>(
-                            future: (() async {
-                              final lspConfig = _controller.lspConfig;
-                              final line = lineChar['line']!;
-                              final character = lineChar['character']!;
-
-                              String diagnosticMessage = '';
-                              int severity = 0;
-                              String hoverMessage = '';
-
-                              final diagnostic = _diagnosticsNotifier.value
-                                  .firstWhere(
-                                    (diag) {
-                                      final diagStartLine =
-                                          diag.range['start']['line'] as int;
-                                      final diagEndLine =
-                                          diag.range['end']['line'] as int;
-                                      final diagStartChar =
-                                          diag.range['start']['character']
-                                              as int;
-                                      final diagEndChar =
-                                          diag.range['end']['character'] as int;
-
-                                      if (line < diagStartLine ||
-                                          line > diagEndLine) {
-                                        return false;
-                                      }
-
-                                      if (line == diagStartLine &&
-                                          line == diagEndLine) {
-                                        return character >= diagStartChar &&
-                                            character < diagEndChar;
-                                      } else if (line == diagStartLine) {
-                                        return character >= diagStartChar;
-                                      } else if (line == diagEndLine) {
-                                        return character < diagEndChar;
-                                      } else {
-                                        return true;
-                                      }
-                                    },
-                                    orElse: () => LspErrors(
-                                      severity: 0,
-                                      range: {},
-                                      message: '',
-                                    ),
-                                  );
-
-                              if (diagnostic.message.isNotEmpty) {
-                                diagnosticMessage = diagnostic.message;
-                                severity = diagnostic.severity;
-                              }
-
-                              if (lspConfig != null) {
-                                hoverMessage = await lspConfig.getHover(
-                                  _filePath!,
-                                  line,
-                                  character,
-                                );
-                              }
-
-                              return {
-                                'diagnostic': diagnosticMessage,
-                                'severity': severity,
-                                'hover': hoverMessage,
-                              };
-                            })(),
-                            builder: (_, snapShot) {
-                              if (snapShot.hasError) {
-                                return SizedBox.shrink();
-                              }
-
-                              if (snapShot.connectionState ==
-                                  ConnectionState.waiting) {
+                          child: ValueListenableBuilder<Map<String, dynamic>?>(
+                            valueListenable: _hoverContentNotifier,
+                            builder: (_, data, __) {
+                              if (data == null) {
                                 return ConstrainedBox(
                                   constraints: BoxConstraints(
                                     maxWidth: width,
@@ -2591,11 +2736,6 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                     ),
                                   ),
                                 );
-                              }
-
-                              final data = snapShot.data;
-                              if (data == null) {
-                                return SizedBox.shrink();
                               }
 
                               final diagnosticMessage =
@@ -3063,6 +3203,7 @@ class _CodeField extends LeafRenderObjectWidget {
   final ValueNotifier<bool> selectionActiveNotifier, isHoveringPopup;
   final ValueNotifier<Offset> contextMenuOffsetNotifier, offsetNotifier;
   final ValueNotifier<(Offset, Map<String, int>)?> hoverNotifier;
+  final ValueNotifier<Map<String, dynamic>?> hoverContentNotifier;
   final ValueNotifier<List<dynamic>?> lspActionNotifier, suggestionNotifier;
   final ValueNotifier<String?> aiNotifier;
   final ValueNotifier<LspSignatureHelps?> signatureNotifier;
@@ -3071,6 +3212,8 @@ class _CodeField extends LeafRenderObjectWidget {
   final TextStyle? ghostTextStyle;
   final String? filePath;
   final MatchHighlightStyle? matchHighlightStyle;
+  final VoidCallback? onHoverSetByTap;
+  final TextDirection textDirection;
 
   const _CodeField({
     required this.controller,
@@ -3094,6 +3237,7 @@ class _CodeField extends LeafRenderObjectWidget {
     required this.contextMenuOffsetNotifier,
     required this.offsetNotifier,
     required this.hoverNotifier,
+    required this.hoverContentNotifier,
     required this.suggestionNotifier,
     required this.aiNotifier,
     required this.signatureNotifier,
@@ -3103,6 +3247,7 @@ class _CodeField extends LeafRenderObjectWidget {
     required this.isHoveringPopup,
     required this.context,
     required this.lineWrap,
+    this.textDirection = TextDirection.ltr,
     this.filePath,
     this.textStyle,
     this.languageId,
@@ -3112,6 +3257,7 @@ class _CodeField extends LeafRenderObjectWidget {
     this.innerPadding,
     this.ghostTextStyle,
     this.matchHighlightStyle,
+    this.onHoverSetByTap,
   });
 
   @override
@@ -3143,6 +3289,7 @@ class _CodeField extends LeafRenderObjectWidget {
       selectionActiveNotifier: selectionActiveNotifier,
       contextMenuOffsetNotifier: contextMenuOffsetNotifier,
       hoverNotifier: hoverNotifier,
+      hoverContentNotifier: hoverContentNotifier,
       lineWrap: lineWrap,
       offsetNotifier: offsetNotifier,
       aiNotifier: aiNotifier,
@@ -3154,6 +3301,8 @@ class _CodeField extends LeafRenderObjectWidget {
       signatureNotifier: signatureNotifier,
       ghostTextStyle: ghostTextStyle,
       filePath: filePath,
+      onHoverSetByTap: onHoverSetByTap,
+      textDirection: textDirection,
     );
   }
 
@@ -3184,7 +3333,8 @@ class _CodeField extends LeafRenderObjectWidget {
       ..enableGutterDivider = enableGutterDivider
       ..gutterStyle = gutterStyle
       ..selectionStyle = selectionStyle
-      ..ghostTextStyle = ghostTextStyle;
+      ..ghostTextStyle = ghostTextStyle
+      ..textDirection = textDirection;
   }
 }
 
@@ -3199,12 +3349,14 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   final ValueNotifier<bool> selectionActiveNotifier, isHoveringPopup;
   final ValueNotifier<Offset> contextMenuOffsetNotifier, offsetNotifier;
   final ValueNotifier<(Offset, Map<String, int>)?> hoverNotifier;
+  final ValueNotifier<Map<String, dynamic>?> hoverContentNotifier;
   final ValueNotifier<List<dynamic>?> lspActionNotifier, suggestionNotifier;
   final ValueNotifier<Offset?> aiOffsetNotifier, lspActionOffsetNotifier;
   final ValueNotifier<String?> aiNotifier;
   final ValueNotifier<LspSignatureHelps?> signatureNotifier;
   final BuildContext context;
   final LspConfig? lspConfig;
+  final VoidCallback? onHoverSetByTap;
   final Map<int, double> _lineWidthCache = {};
   final Map<int, String> _lineTextCache = {};
   final Map<int, Rect> _actionBulbRects = {};
@@ -3236,7 +3388,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   late final double _gutterPadding;
   late final Paint _caretPainter;
   late final Paint _bracketHighlightPainter;
-  late final ui.ParagraphStyle _paragraphStyle;
+  late ui.ParagraphStyle _paragraphStyle;
   late final ui.TextStyle _uiTextStyle;
   late SyntaxHighlighter _syntaxHighlighter;
   late double _gutterWidth;
@@ -3261,9 +3413,11 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   bool _draggingStartHandle = false, _draggingEndHandle = false;
   bool _showBubble = false, _draggingCHandle = false, _readOnly;
   bool _isDeferringLayout = false, _hasCachedHeight = false;
+  TextDirection _textDirection;
   Map<int, FoldRange>? _lastLspFoldRanges;
   Rect? _startHandleRect, _endHandleRect, _normalHandle;
   double _longLineWidth = 0.0, _wrapWidth = double.infinity;
+  double _cachedRtlContentWidth = 0.0;
   Timer? _resizeTimer, _layoutDebounceTimer;
   double _cachedTotalHeight = 0.0;
   String? _aiResponse, _lastProcessedText;
@@ -3355,6 +3509,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     required this.contextMenuOffsetNotifier,
     required this.offsetNotifier,
     required this.hoverNotifier,
+    required this.hoverContentNotifier,
     required this.suggestionNotifier,
     required this.lspActionNotifier,
     required this.lspActionOffsetNotifier,
@@ -3378,9 +3533,11 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     this.lspConfig,
     this.filePath,
     this.matchHighlightStyle,
+    this.onHoverSetByTap,
     EdgeInsets? innerPadding,
     TextStyle? textStyle,
     TextStyle? ghostTextStyle,
+    TextDirection textDirection = TextDirection.ltr,
   }) : _editorTheme = editorTheme,
        _ghostTextStyle = ghostTextStyle,
        _language = language,
@@ -3395,7 +3552,8 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
        _innerPadding = innerPadding,
        _textStyle = textStyle,
        _diagnostics = diagnostics,
-       _matchHighlightStyle = matchHighlightStyle {
+       _matchHighlightStyle = matchHighlightStyle,
+       _textDirection = textDirection {
     final fontSize = _textStyle?.fontSize ?? 14.0;
     final fontFamily = _textStyle?.fontFamily;
     final color =
@@ -3439,6 +3597,8 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       fontFamily: fontFamily,
       fontSize: fontSize,
       height: lineHeightMultiplier,
+      textDirection: _textDirection,
+      textAlign: ui.TextAlign.start,
     );
     _uiTextStyle = ui.TextStyle(
       color: color,
@@ -3462,11 +3622,17 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       }
 
       if (hoverNotifier.value != null) {
+        final lineChar = hoverNotifier.value!.$2;
+        final line = lineChar['line']!;
+        final hasActiveFolds = _foldRanges.values.any(
+          (f) => f != null && f.isFolded,
+        );
+        final hoveredY = _getLineYOffset(line, hasActiveFolds);
+        final screenY =
+            hoveredY + (innerPadding?.top ?? 0) - vscrollController.offset;
+
         hoverNotifier.value = (
-          Offset(
-            hoverNotifier.value!.$1.dx,
-            _getCaretInfo().offset.dy - vscrollController.offset,
-          ),
+          Offset(hoverNotifier.value!.$1.dx, screenY),
           hoverNotifier.value!.$2,
         );
       }
@@ -3490,11 +3656,38 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       }
 
       if (hoverNotifier.value != null) {
+        // Recalculate hover position based on the hovered line/char
+        final lineChar = hoverNotifier.value!.$2;
+        final line = lineChar['line']!;
+        final char = lineChar['character']!;
+        final lineText = controller.getLineText(line);
+        final para =
+            _paragraphCache.containsKey(line) &&
+                _lineTextCache[line] == lineText
+            ? _paragraphCache[line]!
+            : _buildParagraph(lineText, width: lineWrap ? _wrapWidth : null);
+
+        double hoveredX = 0.0;
+        if (char > 0 && char <= lineText.length) {
+          final boxes = para.getBoxesForRange(0, char);
+          if (boxes.isNotEmpty) {
+            hoveredX = boxes.last.right;
+          }
+        }
+
+        final screenX = isRTL
+            ? size.width -
+                  _gutterWidth -
+                  (innerPadding?.right ?? 0) -
+                  hoveredX +
+                  (lineWrap ? 0 : hscrollController.offset)
+            : hoveredX +
+                  _gutterWidth +
+                  (innerPadding?.left ?? 0) -
+                  (lineWrap ? 0 : hscrollController.offset);
+
         hoverNotifier.value = (
-          Offset(
-            _getCaretInfo().offset.dx - hscrollController.offset,
-            hoverNotifier.value!.$1.dy,
-          ),
+          Offset(screenX, hoverNotifier.value!.$1.dy),
           hoverNotifier.value!.$2,
         );
       }
@@ -3563,6 +3756,28 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     _ghostTextStyle = value;
     markNeedsPaint();
   }
+
+  TextDirection get textDirection => _textDirection;
+  set textDirection(TextDirection value) {
+    if (_textDirection == value) return;
+    _textDirection = value;
+    final fontSize = _textStyle?.fontSize ?? 14.0;
+    final fontFamily = _textStyle?.fontFamily;
+    final lineHeightMultiplier = _textStyle?.height ?? 1.2;
+    _paragraphStyle = ui.ParagraphStyle(
+      fontFamily: fontFamily,
+      fontSize: fontSize,
+      height: lineHeightMultiplier,
+      textDirection: _textDirection,
+      textAlign: ui.TextAlign.start,
+    );
+    _paragraphCache.clear();
+    _caretInfoCache.clear();
+    markNeedsLayout();
+    markNeedsPaint();
+  }
+
+  bool get isRTL => _textDirection == TextDirection.rtl;
 
   CodeSelectionStyle get selectionStyle => _selectionStyle;
 
@@ -3712,8 +3927,12 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     if (!vscrollController.hasClients || !hscrollController.hasClients) return;
 
     final caretInfo = _getCaretInfo();
-    final caretX =
-        caretInfo.offset.dx + _gutterWidth + (innerPadding?.left ?? 0);
+    final caretX = isRTL
+        ? size.width -
+              _gutterWidth -
+              (innerPadding?.right ?? 0) -
+              caretInfo.offset.dx
+        : caretInfo.offset.dx + _gutterWidth + (innerPadding?.left ?? 0);
     final caretY = caretInfo.offset.dy + (innerPadding?.top ?? 0);
     final caretHeight = caretInfo.height;
     final vScrollOffset = vscrollController.offset;
@@ -3722,7 +3941,9 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         vscrollController.position.viewportDimension - _bottomPaddingHeight;
     final viewportWidth =
         hscrollController.position.viewportDimension - _rightPaddingWidth;
-    final relX = (caretX - hScrollOffset).clamp(0.0, viewportWidth);
+    final relX = isRTL
+        ? (viewportWidth - caretX + hScrollOffset).clamp(0.0, viewportWidth)
+        : (caretX - hScrollOffset).clamp(0.0, viewportWidth);
     final relY = (caretY - vScrollOffset).clamp(0.0, viewportHeight);
 
     offsetNotifier.value = Offset(relX, relY);
@@ -3739,16 +3960,30 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       );
     }
 
-    if (caretX < hScrollOffset + (innerPadding?.left ?? 0) + _gutterWidth) {
-      final targetOffset = caretX - (innerPadding?.left ?? 0) - _gutterWidth;
-      hscrollController.jumpTo(
-        targetOffset.clamp(0, hscrollController.position.maxScrollExtent),
-      );
-    } else if (caretX + 1.5 > hScrollOffset + viewportWidth) {
-      final targetOffset = caretX + 1.5 - viewportWidth;
-      hscrollController.jumpTo(
-        targetOffset.clamp(0, hscrollController.position.maxScrollExtent),
-      );
+    if (isRTL) {
+      if (caretX > hScrollOffset + viewportWidth - _gutterWidth) {
+        final targetOffset = caretX - viewportWidth + _gutterWidth;
+        hscrollController.jumpTo(
+          targetOffset.clamp(0, hscrollController.position.maxScrollExtent),
+        );
+      } else if (caretX - 1.5 < hScrollOffset) {
+        final targetOffset = caretX - 1.5;
+        hscrollController.jumpTo(
+          targetOffset.clamp(0, hscrollController.position.maxScrollExtent),
+        );
+      }
+    } else {
+      if (caretX < hScrollOffset + (innerPadding?.left ?? 0) + _gutterWidth) {
+        final targetOffset = caretX - (innerPadding?.left ?? 0) - _gutterWidth;
+        hscrollController.jumpTo(
+          targetOffset.clamp(0, hscrollController.position.maxScrollExtent),
+        );
+      } else if (caretX + 1.5 > hScrollOffset + viewportWidth) {
+        final targetOffset = caretX + 1.5 - viewportWidth;
+        hscrollController.jumpTo(
+          targetOffset.clamp(0, hscrollController.position.maxScrollExtent),
+        );
+      }
     }
   }
 
@@ -4430,9 +4665,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   ({int lineIndex, int columnIndex, Offset offset, double height})
   _getCaretInfo() {
     final cursorOffset = controller.selection.extentOffset;
-    if (_caretInfoCache.containsKey(cursorOffset)) {
-      return _caretInfoCache[cursorOffset]!;
-    }
 
     final lineCount = controller.lineCount;
     if (lineCount == 0) {
@@ -4455,20 +4687,63 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       final columnIndex = controller.bufferCursorColumn;
       final lineY = _getLineYOffset(lineIndex, hasActiveFolds);
       final lineText = controller.bufferLineText ?? '';
+
+      final contentWidth =
+          size.width - _gutterWidth - (innerPadding?.horizontal ?? 0);
+      final paragraphWidth = lineWrap
+          ? _wrapWidth
+          : (isRTL ? contentWidth : null);
+
       final para = _buildHighlightedParagraph(
         lineIndex,
         lineText,
-        width: lineWrap ? _wrapWidth : null,
+        width: paragraphWidth,
       );
       final clampedCol = columnIndex.clamp(0, lineText.length);
 
       double caretX = 0.0;
       double caretYInLine = 0.0;
-      if (clampedCol > 0) {
-        final boxes = para.getBoxesForRange(0, clampedCol);
-        if (boxes.isNotEmpty) {
-          caretX = boxes.last.right;
-          caretYInLine = boxes.last.top;
+
+      if (isRTL) {
+        if (lineText.isEmpty) {
+          caretX = contentWidth;
+        } else if (clampedCol == 0) {
+          final boxes = para.getBoxesForRange(0, 1);
+          if (boxes.isNotEmpty) {
+            caretX = boxes.first.right;
+            caretYInLine = boxes.first.top;
+          } else {
+            caretX = contentWidth;
+          }
+        } else if (clampedCol >= lineText.length) {
+          final boxes = para.getBoxesForRange(
+            lineText.length - 1,
+            lineText.length,
+          );
+          if (boxes.isNotEmpty) {
+            caretX = boxes.first.left;
+            caretYInLine = boxes.first.top;
+          } else {
+            caretX = 0;
+          }
+        } else {
+          final boxes = para.getBoxesForRange(clampedCol - 1, clampedCol);
+          if (boxes.isNotEmpty) {
+            caretX = boxes.first.left;
+            caretYInLine = boxes.first.top;
+          } else {
+            caretX = contentWidth;
+          }
+        }
+      } else {
+        if (lineText.isEmpty) {
+          caretX = 0;
+        } else if (clampedCol > 0) {
+          final boxes = para.getBoxesForRange(clampedCol - 1, clampedCol);
+          if (boxes.isNotEmpty) {
+            caretX = boxes.first.right;
+            caretYInLine = boxes.first.top;
+          }
         }
       }
 
@@ -4480,6 +4755,10 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         offset: Offset(caretX, lineY + caretYInLine + ghostOffset),
         height: _lineHeight,
       );
+    }
+
+    if (!isRTL && _caretInfoCache.containsKey(cursorOffset)) {
+      return _caretInfoCache[cursorOffset]!;
     }
 
     int lineIndex;
@@ -4497,25 +4776,66 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
     final columnIndex = cursorOffset - lineStartOffset;
     final lineY = _getLineYOffset(lineIndex, hasActiveFolds);
-
     final lineText = controller.getLineText(lineIndex);
+    final contentWidth =
+        size.width - _gutterWidth - (innerPadding?.horizontal ?? 0);
+    final paragraphWidth = lineWrap
+        ? _wrapWidth
+        : (isRTL ? contentWidth : null);
 
     ui.Paragraph para;
     if (_paragraphCache.containsKey(lineIndex) &&
-        _lineTextCache[lineIndex] == lineText) {
+        _lineTextCache[lineIndex] == lineText &&
+        !isRTL) {
       para = _paragraphCache[lineIndex]!;
     } else {
-      para = _buildParagraph(lineText, width: lineWrap ? _wrapWidth : null);
+      para = _buildParagraph(lineText, width: paragraphWidth);
     }
 
     final clampedCol = columnIndex.clamp(0, lineText.length);
     double caretX = 0.0;
     double caretYInLine = 0.0;
-    if (clampedCol > 0) {
-      final boxes = para.getBoxesForRange(0, clampedCol);
-      if (boxes.isNotEmpty) {
-        caretX = boxes.last.right;
-        caretYInLine = boxes.last.top;
+
+    if (isRTL) {
+      if (lineText.isEmpty) {
+        caretX = contentWidth;
+      } else if (clampedCol == 0) {
+        final boxes = para.getBoxesForRange(0, 1);
+        if (boxes.isNotEmpty) {
+          caretX = boxes.first.right;
+          caretYInLine = boxes.first.top;
+        } else {
+          caretX = contentWidth;
+        }
+      } else if (clampedCol >= lineText.length) {
+        final boxes = para.getBoxesForRange(
+          lineText.length - 1,
+          lineText.length,
+        );
+        if (boxes.isNotEmpty) {
+          caretX = boxes.first.left;
+          caretYInLine = boxes.first.top;
+        } else {
+          caretX = 0;
+        }
+      } else {
+        final boxes = para.getBoxesForRange(clampedCol - 1, clampedCol);
+        if (boxes.isNotEmpty) {
+          caretX = boxes.first.left;
+          caretYInLine = boxes.first.top;
+        } else {
+          caretX = contentWidth;
+        }
+      }
+    } else {
+      if (lineText.isEmpty) {
+        caretX = 0;
+      } else if (clampedCol > 0) {
+        final boxes = para.getBoxesForRange(clampedCol - 1, clampedCol);
+        if (boxes.isNotEmpty) {
+          caretX = boxes.first.right;
+          caretYInLine = boxes.first.top;
+        }
       }
     }
 
@@ -4567,18 +4887,27 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       _paragraphCache.remove(tappedLineIndex);
     }
 
+    final contentWidth =
+        size.width - _gutterWidth - (innerPadding?.horizontal ?? 0);
+    final paragraphWidth = lineWrap
+        ? _wrapWidth
+        : (isRTL ? contentWidth : null);
+
     ui.Paragraph para;
-    if (_paragraphCache.containsKey(tappedLineIndex)) {
+    if (_paragraphCache.containsKey(tappedLineIndex) && !isRTL) {
       para = _paragraphCache[tappedLineIndex]!;
     } else {
       para = _buildHighlightedParagraph(
         tappedLineIndex,
         lineText,
-        width: lineWrap ? _wrapWidth : null,
+        width: paragraphWidth,
       );
-      _paragraphCache[tappedLineIndex] = para;
+      if (!isRTL) {
+        _paragraphCache[tappedLineIndex] = para;
+      }
     }
 
+    // position.dx is already in paragraph-local coordinates (passed from handleEvent)
     double localX = position.dx;
 
     final colors =
@@ -4675,6 +5004,25 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       _lineWidthCache.removeWhere((key, _) => key >= lineCount);
       _lineTextCache.removeWhere((key, _) => key >= lineCount);
       _lineHeightCache.removeWhere((key, _) => key >= lineCount);
+    }
+
+    if (isRTL && !lineWrap) {
+      final viewportWidth = constraints.maxWidth.isFinite
+          ? constraints.maxWidth
+          : MediaQuery.of(context).size.width;
+      final newContentWidth =
+          viewportWidth - _gutterWidth - (innerPadding?.horizontal ?? 0);
+      if ((_cachedRtlContentWidth - newContentWidth).abs() > 1) {
+        _cachedRtlContentWidth = newContentWidth;
+        _paragraphCache.clear();
+        _bracketCache.clear();
+        _indentGuideCache.clear();
+        _diagnosticPathCache.clear();
+        _searchHighlightCache.clear();
+        _lineOffsetCache.clear();
+        _caretInfoCache.clear();
+        _lineIndentCache.clear();
+      }
     }
 
     if (_isDeferringLayout && _hasCachedHeight) {
@@ -5006,12 +5354,20 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       ui.Paragraph paragraph;
       String lineText;
 
+      // For RTL without line wrap, we need a defined width for proper text alignment
+      // The width should be the content area width (total width minus gutter and padding)
+      final contentWidth =
+          size.width - _gutterWidth - (innerPadding?.horizontal ?? 0);
+      final paragraphWidth = lineWrap
+          ? _wrapWidth
+          : (isRTL ? contentWidth : null);
+
       if (bufferActive && i == bufferLineIndex && bufferLineText != null) {
         lineText = bufferLineText;
         paragraph = _buildHighlightedParagraph(
           i,
           bufferLineText,
-          width: lineWrap ? _wrapWidth : null,
+          width: paragraphWidth,
         );
       } else {
         if (_lineTextCache.containsKey(i)) {
@@ -5021,15 +5377,18 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
           _lineTextCache[i] = lineText;
         }
 
-        if (_paragraphCache.containsKey(i)) {
+        // For RTL, always rebuild paragraph to ensure correct width
+        if (_paragraphCache.containsKey(i) && !isRTL) {
           paragraph = _paragraphCache[i]!;
         } else {
           paragraph = _buildHighlightedParagraph(
             i,
             lineText,
-            width: lineWrap ? _wrapWidth : null,
+            width: paragraphWidth,
           );
-          _paragraphCache[i] = paragraph;
+          if (!isRTL) {
+            _paragraphCache[i] = paragraph;
+          }
 
           if (lineWrap) {
             _lineHeightCache[i] = paragraph.height;
@@ -5040,13 +5399,20 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       final foldRange = _getFoldRangeAtLine(i);
       final isFoldStart = foldRange != null;
 
+      // For RTL, position text from the left edge since paragraph handles RTL alignment internally
+      // The paragraph width equals content area width, so text is right-aligned within it
+      final textX = isRTL
+          ? (innerPadding?.left ?? 0) -
+                (lineWrap ? 0 : hscrollController.offset)
+          : _gutterWidth +
+                (innerPadding?.left ?? 0) -
+                (lineWrap ? 0 : hscrollController.offset);
+
       canvas.drawParagraph(
         paragraph,
         offset +
             Offset(
-              _gutterWidth +
-                  (innerPadding?.left ?? 0) -
-                  (lineWrap ? 0 : hscrollController.offset),
+              textX,
               (innerPadding?.top ?? 0) +
                   contentTop +
                   visualYOffset -
@@ -5057,14 +5423,23 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       if (isFoldStart && foldRange.isFolded) {
         final foldIndicator = _buildParagraph(' ...');
         final paraWidth = paragraph.longestLine;
+        // For RTL, fold indicator goes to the left of the text (text is right-aligned)
+        // For LTR, fold indicator goes to the right of the text
+        final foldX = isRTL
+            ? (innerPadding?.left ?? 0) +
+                  contentWidth -
+                  paraWidth -
+                  foldIndicator.longestLine -
+                  (lineWrap ? 0 : hscrollController.offset)
+            : _gutterWidth +
+                  (innerPadding?.left ?? 0) +
+                  paraWidth -
+                  (lineWrap ? 0 : hscrollController.offset);
         canvas.drawParagraph(
           foldIndicator,
           offset +
               Offset(
-                _gutterWidth +
-                    (innerPadding?.left ?? 0) +
-                    paraWidth -
-                    (lineWrap ? 0 : hscrollController.offset),
+                foldX,
                 (innerPadding?.top ?? 0) +
                     contentTop +
                     visualYOffset -
@@ -5181,18 +5556,19 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     if (focusNode.hasFocus && caretBlinkController.value > 0.5) {
       final caretInfo = _getCaretInfo();
 
-      final caretX =
-          _gutterWidth +
-          (innerPadding?.left ?? 0) +
-          caretInfo.offset.dx -
-          (lineWrap ? 0 : hscrollController.offset);
+      final scroll = lineWrap ? 0.0 : hscrollController.offset;
+      final textX = isRTL
+          ? (innerPadding?.left ?? 0) - scroll
+          : _gutterWidth + (innerPadding?.left ?? 0) - scroll;
+      final caretScreenX = offset.dx + textX + caretInfo.offset.dx;
       final caretScreenY =
+          offset.dy +
           (innerPadding?.top ?? 0) +
           caretInfo.offset.dy -
           vscrollController.offset;
 
       canvas.drawRect(
-        Rect.fromLTWH(caretX, caretScreenY, 1.5, caretInfo.height),
+        Rect.fromLTWH(caretScreenX, caretScreenY, 1.5, caretInfo.height),
         _caretPainter,
       );
     }
@@ -5211,12 +5587,12 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
           final caretInfo = _getCaretInfo();
           final handleSize = caretInfo.height;
 
-          final handleX =
-              offset.dx +
-              _gutterWidth +
-              (innerPadding?.left ?? 0) +
-              caretInfo.offset.dx -
-              (lineWrap ? 0 : hscrollController.offset);
+          // Use same positioning logic as caret
+          final scroll = lineWrap ? 0.0 : hscrollController.offset;
+          final textX = isRTL
+              ? (innerPadding?.left ?? 0) - scroll
+              : _gutterWidth + (innerPadding?.left ?? 0) - scroll;
+          final handleX = offset.dx + textX + caretInfo.offset.dx;
           final handleY =
               offset.dy +
               (innerPadding?.top ?? 0) +
@@ -5226,7 +5602,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
           canvas.save();
           canvas.translate(handleX, handleY);
-          canvas.rotate(pi / 4);
+          canvas.rotate(isRTL ? -pi / 4 : pi / 4);
           canvas.drawRRect(
             RRect.fromRectAndCorners(
               Rect.fromCenter(
@@ -5371,8 +5747,9 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     final viewportHeight = vscrollController.position.viewportDimension;
 
     final gutterBgColor = gutterStyle.backgroundColor ?? bgColor;
+    final gutterX = isRTL ? offset.dx + size.width - _gutterWidth : offset.dx;
     canvas.drawRect(
-      Rect.fromLTWH(offset.dx, offset.dy, _gutterWidth, viewportHeight),
+      Rect.fromLTWH(gutterX, offset.dy, _gutterWidth, viewportHeight),
       Paint()..color = gutterBgColor,
     );
 
@@ -5380,9 +5757,10 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       final dividerPaint = Paint()
         ..color = (editorTheme['root']?.color ?? Colors.grey).withAlpha(150)
         ..strokeWidth = 1;
+      final dividerX = isRTL ? gutterX : gutterX + _gutterWidth - 1;
       canvas.drawLine(
-        Offset(offset.dx + _gutterWidth - 1, offset.dy),
-        Offset(offset.dx + _gutterWidth - 1, offset.dy + viewportHeight),
+        Offset(dividerX, offset.dy),
+        Offset(dividerX, offset.dy + viewportHeight),
         dividerPaint,
       );
     }
@@ -5531,7 +5909,8 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
           lineNumPara,
           offset +
               Offset(
-                (_gutterWidth - numWidth) / 2 -
+                (isRTL ? size.width - _gutterWidth : 0) +
+                    (_gutterWidth - numWidth) / 2 -
                     (enableFolding ? (lineNumberStyle.fontSize ?? 14) / 2 : 0),
                 (innerPadding?.top ?? 0) +
                     contentTop +
@@ -5570,17 +5949,21 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
                   package: icon.fontPackage,
                 ),
               ),
-              textDirection: TextDirection.ltr,
+              textDirection: _textDirection,
             );
             actionBulbPainter.layout();
 
-            final bulbX = isMobile
-                ? offset.dx +
-                      _gutterWidth -
-                      actionBulbPainter.width -
-                      (baseLineNumberStyle.fontSize ?? 14) +
-                      4
-                : offset.dx + 4;
+            final bulbX = isRTL
+                ? (isMobile
+                      ? offset.dx + size.width - actionBulbPainter.width - 4
+                      : offset.dx + size.width - _gutterWidth + 4)
+                : (isMobile
+                      ? offset.dx +
+                            _gutterWidth -
+                            actionBulbPainter.width -
+                            (baseLineNumberStyle.fontSize ?? 14) +
+                            4
+                      : offset.dx + 4);
             final bulbY =
                 offset.dy +
                 (innerPadding?.top ?? 0) +
@@ -5613,7 +5996,9 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
             if (!isInsideFoldedParent) {
               final icon = foldRange.isFolded
-                  ? gutterStyle.foldedIcon
+                  ? (isRTL
+                        ? Icons.chevron_left_outlined
+                        : gutterStyle.foldedIcon)
                   : gutterStyle.unfoldedIcon;
               final iconColor = foldRange.isFolded
                   ? (gutterStyle.foldedIconColor ?? lineNumberStyle.color)
@@ -5675,18 +6060,21 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
           package: icon.fontPackage,
         ),
       ),
-      textDirection: TextDirection.ltr,
+      textDirection: _textDirection,
     );
     iconPainter.layout();
+    final iconX = isRTL
+        ? offset.dx + size.width - iconPainter.width - 2
+        : offset.dx + _gutterWidth - iconPainter.width - 2;
     iconPainter.paint(
       canvas,
-      offset +
-          Offset(
-            _gutterWidth - iconPainter.width - 2,
+      Offset(
+        iconX,
+        offset.dy +
             (innerPadding?.top ?? 0) +
-                y +
-                (_lineHeight - iconPainter.height) / 2,
-          ),
+            y +
+            (_lineHeight - iconPainter.height) / 2,
+      ),
     );
   }
 
@@ -5910,16 +6298,29 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
       if (screenYBottom < 0 || screenYTop > viewBottom - viewTop) continue;
 
-      final screenGuideX =
-          offset.dx +
-          _gutterWidth +
-          (innerPadding?.left ?? 0) +
-          block.guideX -
-          (lineWrap ? 0 : hscrollController.offset);
+      final screenGuideX = isRTL
+          ? offset.dx +
+                size.width -
+                _gutterWidth -
+                (innerPadding?.right ?? 0) -
+                block.guideX +
+                (lineWrap ? 0 : hscrollController.offset)
+          : offset.dx +
+                _gutterWidth +
+                (innerPadding?.left ?? 0) +
+                block.guideX -
+                (lineWrap ? 0 : hscrollController.offset);
 
-      if (screenGuideX < offset.dx + _gutterWidth ||
-          screenGuideX > offset.dx + size.width) {
-        continue;
+      if (isRTL) {
+        if (screenGuideX > offset.dx + size.width - _gutterWidth ||
+            screenGuideX < offset.dx) {
+          continue;
+        }
+      } else {
+        if (screenGuideX < offset.dx + _gutterWidth ||
+            screenGuideX > offset.dx + size.width) {
+          continue;
+        }
       }
 
       final clampedYTop = screenYTop.clamp(0.0, viewBottom - viewTop);
@@ -5998,6 +6399,12 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
     if (columnIndex < 0 || columnIndex >= lineText.length) return;
 
+    final contentWidth =
+        size.width - _gutterWidth - (innerPadding?.horizontal ?? 0);
+    final paragraphWidth = lineWrap
+        ? _wrapWidth
+        : (isRTL ? contentWidth : null);
+
     ui.Paragraph para;
     if (_paragraphCache.containsKey(lineIndex)) {
       para = _paragraphCache[lineIndex]!;
@@ -6005,7 +6412,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       para = _buildHighlightedParagraph(
         lineIndex,
         lineText,
-        width: lineWrap ? _wrapWidth : null,
+        width: paragraphWidth,
       );
       _paragraphCache[lineIndex] = para;
     }
@@ -6017,17 +6424,13 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
     final lineY = _getLineYOffset(lineIndex, hasActiveFolds);
     final boxY = lineY + box.top;
-
-    // Add color box offset for correct bracket highlight position
     final colorBoxOffset = _getColorBoxOffsetForLine(lineIndex, columnIndex);
 
-    final screenX =
-        offset.dx +
-        _gutterWidth +
-        (innerPadding?.left ?? 0) +
-        box.left +
-        colorBoxOffset -
-        (lineWrap ? 0 : hscrollController.offset);
+    final scroll = lineWrap ? 0.0 : hscrollController.offset;
+    final textX = isRTL
+        ? (innerPadding?.left ?? 0) - scroll
+        : _gutterWidth + (innerPadding?.left ?? 0) - scroll;
+    final screenX = offset.dx + textX + box.left + colorBoxOffset;
     final screenY =
         offset.dy + (innerPadding?.top ?? 0) + boxY - vscrollController.offset;
 
@@ -6142,12 +6545,18 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         final lineY = _getLineYOffset(lineIndex, hasActiveFolds);
 
         for (final box in boxes) {
-          final screenX =
-              offset.dx +
-              _gutterWidth +
-              (innerPadding?.left ?? 0) +
-              box.left -
-              (lineWrap ? 0 : hscrollController.offset);
+          final screenX = isRTL
+              ? offset.dx +
+                    size.width -
+                    _gutterWidth -
+                    (innerPadding?.right ?? 0) -
+                    box.right +
+                    (lineWrap ? 0 : hscrollController.offset)
+              : offset.dx +
+                    _gutterWidth +
+                    (innerPadding?.left ?? 0) +
+                    box.left -
+                    (lineWrap ? 0 : hscrollController.offset);
           final screenY =
               offset.dy +
               (innerPadding?.top ?? 0) +
@@ -6252,6 +6661,12 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
         if (lineSelStart >= lineSelEnd) continue;
 
+        final contentWidth =
+            size.width - _gutterWidth - (innerPadding?.horizontal ?? 0);
+        final paragraphWidth = lineWrap
+            ? _wrapWidth
+            : (isRTL ? contentWidth : null);
+
         ui.Paragraph para;
         if (_paragraphCache.containsKey(lineIndex)) {
           para = _paragraphCache[lineIndex]!;
@@ -6259,12 +6674,17 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
           para = _buildHighlightedParagraph(
             lineIndex,
             lineText,
-            width: lineWrap ? _wrapWidth : null,
+            width: paragraphWidth,
           );
           _paragraphCache[lineIndex] = para;
         }
 
         final lineY = _getLineYOffset(lineIndex, hasActiveFolds);
+
+        final scroll = lineWrap ? 0.0 : hscrollController.offset;
+        final textX = isRTL
+            ? (innerPadding?.left ?? 0) - scroll
+            : _gutterWidth + (innerPadding?.left ?? 0) - scroll;
 
         if (lineText.isNotEmpty) {
           final boxKey = '$lineIndex-$lineSelStart-$lineSelEnd';
@@ -6279,12 +6699,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
           }
 
           for (final box in boxes) {
-            final screenX =
-                offset.dx +
-                _gutterWidth +
-                (innerPadding?.left ?? 0) +
-                box.left -
-                (lineWrap ? 0 : hscrollController.offset);
+            final screenX = offset.dx + textX + box.left;
             final screenY =
                 offset.dy +
                 (innerPadding?.top ?? 0) +
@@ -6345,13 +6760,11 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
           lineY -
           vscrollController.offset;
 
+      final highlightX = isRTL ? offset.dx : offset.dx + _gutterWidth;
+      final highlightWidth = size.width - _gutterWidth;
+
       canvas.drawRect(
-        Rect.fromLTWH(
-          offset.dx + _gutterWidth,
-          screenY,
-          size.width - _gutterWidth,
-          lineHeight,
-        ),
+        Rect.fromLTWH(highlightX, screenY, highlightWidth, lineHeight),
         highlightPaint,
       );
     }
@@ -6406,6 +6819,12 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         lineSelEnd = lineLength;
       }
 
+      final contentWidth =
+          size.width - _gutterWidth - (innerPadding?.horizontal ?? 0);
+      final paragraphWidth = lineWrap
+          ? _wrapWidth
+          : (isRTL ? contentWidth : null);
+
       ui.Paragraph para;
       if (_paragraphCache.containsKey(lineIndex)) {
         para = _paragraphCache[lineIndex]!;
@@ -6413,7 +6832,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         para = _buildHighlightedParagraph(
           lineIndex,
           lineText,
-          width: lineWrap ? _wrapWidth : null,
+          width: paragraphWidth,
         );
         _paragraphCache[lineIndex] = para;
       }
@@ -6429,6 +6848,11 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         lineSelEnd,
       );
 
+      final scroll = lineWrap ? 0.0 : hscrollController.offset;
+      final textX = isRTL
+          ? (innerPadding?.left ?? 0) - scroll
+          : _gutterWidth + (innerPadding?.left ?? 0) - scroll;
+
       if (lineSelStart < lineSelEnd && lineText.isNotEmpty) {
         final boxes = para.getBoxesForRange(
           lineSelStart.clamp(0, lineText.length),
@@ -6440,12 +6864,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
           final adjustedLeft = box.left + colorBoxOffsetStart;
           final adjustedRight = box.right + colorBoxOffsetEnd;
 
-          final screenX =
-              offset.dx +
-              _gutterWidth +
-              (innerPadding?.left ?? 0) +
-              adjustedLeft -
-              (lineWrap ? 0 : hscrollController.offset);
+          final screenX = offset.dx + textX + adjustedLeft;
           final screenY =
               offset.dy +
               (innerPadding?.top ?? 0) +
@@ -6464,11 +6883,9 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
           );
         }
       } else if (lineIndex < endLine) {
-        final screenX =
-            offset.dx +
-            _gutterWidth +
-            (innerPadding?.left ?? 0) -
-            (lineWrap ? 0 : hscrollController.offset);
+        final screenX = isRTL
+            ? offset.dx + textX + contentWidth - 8
+            : offset.dx + textX;
         final screenY =
             offset.dy +
             (innerPadding?.top ?? 0) +
@@ -6540,6 +6957,12 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
         if (lineHighStart >= lineHighEnd) continue;
 
+        final contentWidth =
+            size.width - _gutterWidth - (innerPadding?.horizontal ?? 0);
+        final paragraphWidth = lineWrap
+            ? _wrapWidth
+            : (isRTL ? contentWidth : null);
+
         ui.Paragraph para;
         if (_paragraphCache.containsKey(lineIndex)) {
           para = _paragraphCache[lineIndex]!;
@@ -6547,7 +6970,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
           para = _buildHighlightedParagraph(
             lineIndex,
             lineText,
-            width: lineWrap ? _wrapWidth : null,
+            width: paragraphWidth,
           );
         }
 
@@ -6558,16 +6981,16 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         );
         final boxes = para.getBoxesForRange(lineHighStart, lineHighEnd);
 
+        final scroll = lineWrap ? 0.0 : hscrollController.offset;
+        final textX = isRTL
+            ? (innerPadding?.left ?? 0) - scroll
+            : _gutterWidth + (innerPadding?.left ?? 0) - scroll;
+
         for (final box in boxes) {
           final adjustedLeft = box.left + colorBoxOffset;
           final adjustedRight = box.right + colorBoxOffset;
 
-          final screenX =
-              offset.dx +
-              _gutterWidth +
-              (innerPadding?.left ?? 0) +
-              adjustedLeft -
-              (lineWrap ? 0 : hscrollController.offset);
+          final screenX = offset.dx + textX + adjustedLeft;
           final screenY =
               offset.dy +
               (innerPadding?.top ?? 0) +
@@ -6598,6 +7021,15 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     bool hasActiveFolds,
   ) {
     final handleRadius = (_lineHeight / 2).clamp(6.0, 12.0);
+    final contentWidth =
+        size.width - _gutterWidth - (innerPadding?.horizontal ?? 0);
+    final paragraphWidth = lineWrap
+        ? _wrapWidth
+        : (isRTL ? contentWidth : null);
+    final scroll = lineWrap ? 0.0 : hscrollController.offset;
+    final textX = isRTL
+        ? (innerPadding?.left ?? 0) - scroll
+        : _gutterWidth + (innerPadding?.left ?? 0) - scroll;
 
     final startLineOffset = controller.getLineStartOffset(startLine);
     final startLineText =
@@ -6614,7 +7046,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
           _buildHighlightedParagraph(
             startLine,
             startLineText,
-            width: lineWrap ? _wrapWidth : null,
+            width: paragraphWidth,
           );
       final boxes = para.getBoxesForRange(
         0,
@@ -6632,12 +7064,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
     startX += _getColorBoxOffsetForLine(startLine, startCol);
 
-    final startScreenX =
-        offset.dx +
-        _gutterWidth +
-        (innerPadding?.left ?? 0) +
-        startX -
-        (lineWrap ? 0 : hscrollController.offset);
+    final startScreenX = offset.dx + textX + startX;
     final startScreenY =
         offset.dy +
         (innerPadding?.top ?? 0) +
@@ -6647,7 +7074,9 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
     _startHandleRect = Rect.fromCenter(
       center: Offset(
-        startScreenX - (textStyle?.fontSize ?? 14) / 2,
+        isRTL
+            ? startScreenX + (textStyle?.fontSize ?? 14) / 2
+            : startScreenX - (textStyle?.fontSize ?? 14) / 2,
         startScreenY + _lineHeight + handleRadius,
       ),
       width: handleRadius * 2 * 1.2,
@@ -6669,7 +7098,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
           _buildHighlightedParagraph(
             endLine,
             endLineText,
-            width: lineWrap ? _wrapWidth : null,
+            width: paragraphWidth,
           );
       final boxes = para.getBoxesForRange(
         0,
@@ -6687,12 +7116,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
     endX += _getColorBoxOffsetForLine(endLine, endCol);
 
-    final endScreenX =
-        offset.dx +
-        _gutterWidth +
-        (innerPadding?.left ?? 0) +
-        endX -
-        (lineWrap ? 0 : hscrollController.offset);
+    final endScreenX = offset.dx + textX + endX;
     final endScreenY =
         offset.dy +
         (innerPadding?.top ?? 0) +
@@ -6702,7 +7126,9 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
     _endHandleRect = Rect.fromCenter(
       center: Offset(
-        endScreenX + (textStyle?.fontSize ?? 14) / 2,
+        isRTL
+            ? endScreenX - (textStyle?.fontSize ?? 14) / 2
+            : endScreenX + (textStyle?.fontSize ?? 14) / 2,
         endScreenY + _lineHeight + handleRadius,
       ),
       width: handleRadius * 2 * 1.2,
@@ -6787,6 +7213,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
                 fontFamily: textStyle?.fontFamily,
                 fontSize: textStyle?.fontSize ?? 14.0,
                 height: textStyle?.height ?? 1.2,
+                textDirection: textDirection,
               ),
             )
             ..pushStyle(ghostStyle)
@@ -6801,12 +7228,19 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
           cursorY -
           vscrollController.offset;
 
-      final screenX =
-          offset.dx +
-          _gutterWidth +
-          (innerPadding?.left ?? 0) +
-          cursorX -
-          (lineWrap ? 0 : hscrollController.offset);
+      final screenX = isRTL
+          ? offset.dx +
+                size.width -
+                _gutterWidth -
+                (innerPadding?.right ?? 0) -
+                cursorX +
+                (lineWrap ? 0 : hscrollController.offset) -
+                firstLineGhostWidth
+          : offset.dx +
+                _gutterWidth +
+                (innerPadding?.left ?? 0) +
+                cursorX -
+                (lineWrap ? 0 : hscrollController.offset);
 
       final bgColor = editorTheme['root']?.backgroundColor ?? Colors.black;
       final originalPara = _paragraphCache[cursorLine];
@@ -6863,12 +7297,14 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
                 fontFamily: textStyle?.fontFamily,
                 fontSize: textStyle?.fontSize ?? 14.0,
                 height: textStyle?.height ?? 1.2,
+                textDirection: textDirection,
               ),
             )
             ..pushStyle(ghostStyle)
             ..addText(aiLines[0]);
       final ghostPara = ghostBuilder.build();
       ghostPara.layout(const ui.ParagraphConstraints(width: double.infinity));
+      final firstGhostWidth = ghostPara.longestLine;
 
       final screenY =
           offset.dy +
@@ -6876,12 +7312,19 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
           cursorY -
           vscrollController.offset;
 
-      final screenX =
-          offset.dx +
-          _gutterWidth +
-          (innerPadding?.left ?? 0) +
-          cursorX -
-          (lineWrap ? 0 : hscrollController.offset);
+      final screenX = isRTL
+          ? offset.dx +
+                size.width -
+                _gutterWidth -
+                (innerPadding?.right ?? 0) -
+                cursorX +
+                (lineWrap ? 0 : hscrollController.offset) -
+                firstGhostWidth
+          : offset.dx +
+                _gutterWidth +
+                (innerPadding?.left ?? 0) +
+                cursorX -
+                (lineWrap ? 0 : hscrollController.offset);
 
       final bgColor = editorTheme['root']?.backgroundColor ?? Colors.black;
       final originalPara = _paragraphCache[cursorLine];
@@ -6914,21 +7357,8 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
           lineY -
           vscrollController.offset;
 
-      final screenX =
-          offset.dx +
-          _gutterWidth +
-          (innerPadding?.left ?? 0) -
-          (lineWrap ? 0 : hscrollController.offset);
-
-      if (screenY + _lineHeight < offset.dy ||
-          screenY > offset.dy + vscrollController.position.viewportDimension) {
-        if (isLastLine) {
-          lastGhostLineScreenY = screenY;
-          lastGhostLineScreenX = screenX;
-        }
-        continue;
-      }
-
+      ui.Paragraph? para;
+      double paraWidth = 0;
       if (aiLineText.isNotEmpty || isLastLine) {
         final builder =
             ui.ParagraphBuilder(
@@ -6936,18 +7366,44 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
                   fontFamily: textStyle?.fontFamily,
                   fontSize: textStyle?.fontSize ?? 14.0,
                   height: textStyle?.height ?? 1.2,
+                  textDirection: textDirection,
                 ),
               )
               ..pushStyle(ghostStyle)
               ..addText(aiLineText);
 
-        final para = builder.build();
+        para = builder.build();
         para.layout(const ui.ParagraphConstraints(width: double.infinity));
+        paraWidth = para.longestLine;
+      }
 
+      final screenX = isRTL
+          ? offset.dx +
+                size.width -
+                _gutterWidth -
+                (innerPadding?.right ?? 0) +
+                (lineWrap ? 0 : hscrollController.offset) -
+                paraWidth
+          : offset.dx +
+                _gutterWidth +
+                (innerPadding?.left ?? 0) -
+                (lineWrap ? 0 : hscrollController.offset);
+
+      if (screenY + _lineHeight < offset.dy ||
+          screenY > offset.dy + vscrollController.position.viewportDimension) {
+        if (isLastLine) {
+          lastGhostLineScreenY = screenY;
+          lastGhostLineScreenX = screenX;
+          lastGhostLineWidth = paraWidth;
+        }
+        continue;
+      }
+
+      if (para != null) {
         canvas.drawParagraph(para, Offset(screenX, screenY));
 
         if (isLastLine) {
-          lastGhostLineWidth = para.longestLine;
+          lastGhostLineWidth = paraWidth;
           lastGhostLineScreenY = screenY;
           lastGhostLineScreenX = screenX;
         }
@@ -7503,7 +7959,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     }
   }
 
-  /// Draws inlay hints inline with the code, pushing text to the right
   void _drawInlayHints(
     Canvas canvas,
     Offset offset,
@@ -7676,8 +8131,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         final hintPara = builder.build();
         hintPara.layout(const ui.ParagraphConstraints(width: double.infinity));
         final hintWidth = hintPara.longestLine;
-
-        // Draw background with rounded corners
         final hintHeight = hintPara.height;
         final bgRect = RRect.fromRectAndRadius(
           Rect.fromLTWH(
@@ -7730,7 +8183,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     }
   }
 
-  /// Draws document color boxes inline before color literals, pushing text to the right
   void _drawDocumentColors(
     Canvas canvas,
     Offset offset,
@@ -7893,7 +8345,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
             ..strokeWidth = 1,
         );
 
-        // Store hit area for click detection
         _colorBoxHitAreas[colorRect.outerRect] = docColor;
 
         currentX += totalColorWidth;
@@ -8007,7 +8458,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
             controller.replaceRange(startOffset, endOffset, newText);
           }
         } else {
-          // Fallback: use the label if textEdit is not provided
           final label = presentation['label'] as String?;
           if (label != null) {
             final startOffset =
@@ -8044,11 +8494,16 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         localPosition.dy + vscrollController.offset - (innerPadding?.top ?? 0);
     _currentPosition = localPosition;
 
+    final contentX = isRTL
+        ? localPosition.dx -
+              (innerPadding?.left ?? 0) +
+              (lineWrap ? 0 : hscrollController.offset)
+        : localPosition.dx -
+              _gutterWidth -
+              (innerPadding?.left ?? 0) +
+              (lineWrap ? 0 : hscrollController.offset);
     final contentPosition = Offset(
-      localPosition.dx -
-          _gutterWidth -
-          (innerPadding?.left ?? 0) +
-          (lineWrap ? 0 : hscrollController.offset),
+      contentX,
       localPosition.dy - (innerPadding?.top ?? 0) + vscrollController.offset,
     );
     final textOffset = _getTextOffsetFromPosition(contentPosition);
@@ -8105,7 +8560,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         }
       }
 
-      // Check if clicked on a color box
       if (_colorBoxHitAreas.isNotEmpty) {
         for (final entry in _colorBoxHitAreas.entries) {
           if (entry.key.contains(localPosition)) {
@@ -8115,7 +8569,11 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         }
       }
 
-      if (enableFolding && enableGutter && localPosition.dx < _gutterWidth) {
+      final gutterClickArea = isRTL
+          ? localPosition.dx > size.width - _gutterWidth
+          : localPosition.dx < _gutterWidth;
+
+      if (enableFolding && enableGutter && gutterClickArea) {
         if (clickY < 0) return;
         final clickedLine = _findVisibleLineByYPosition(clickY);
 
@@ -8140,11 +8598,13 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         };
 
         _onetap.onTap = () {
-          if (hoverNotifier.value != null) {
+          if (hoverNotifier.value != null && !isHoveringPopup.value) {
             hoverNotifier.value = null;
+            hoverContentNotifier.value = null;
           } else if (_isOffsetOverWord(textOffset)) {
             final lineChar = _offsetToLineChar(textOffset);
             hoverNotifier.value = (localPosition, lineChar);
+            onHoverSetByTap?.call();
           }
 
           if (lspActionNotifier.value != null ||
@@ -8330,13 +8790,13 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   }
 
   bool _isWordBoundary(String char) {
-    return char.trim().isEmpty || !RegExp(r'\w').hasMatch(char);
+    return char.trim().isEmpty || !RegExp(_wordCharPattern).hasMatch(char);
   }
 
   bool _isOffsetOverWord(int offset) {
     final text = controller.text;
     if (offset < 0 || offset >= text.length) return false;
-    return RegExp(r'\w').hasMatch(text[offset]);
+    return RegExp(_wordCharPattern).hasMatch(text[offset]);
   }
 
   Map<String, int> _offsetToLineChar(int offset) {
@@ -8354,7 +8814,12 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
   @override
   MouseCursor get cursor {
-    if (_currentPosition.dx >= 0 && _currentPosition.dx < _gutterWidth) {
+    // RTL-aware gutter area detection
+    final isInGutter = isRTL
+        ? _currentPosition.dx > size.width - _gutterWidth
+        : _currentPosition.dx >= 0 && _currentPosition.dx < _gutterWidth;
+
+    if (isInGutter) {
       if (_foldRanges.isEmpty && !enableFolding) {
         return MouseCursor.defer;
       }

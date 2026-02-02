@@ -37,12 +37,14 @@ class CodeForgeController implements DeltaTextInputClient {
   static const _semanticTokenDebounce = Duration(milliseconds: 500);
   static const _documentColorDebounce = Duration(milliseconds: 50);
   static const _documentHighlightDebounce = Duration(milliseconds: 300);
+  static const _cclsRefreshDebounce = Duration(milliseconds: 1000);
   final List<VoidCallback> _listeners = [];
   final _isMobile = Platform.isAndroid || Platform.isIOS;
   Timer? _flushTimer, _semanticTokenTimer, _codeActionTimer, _syncTimer;
   Timer? _documentColorTimer;
   Timer? _foldRangesTimer;
   Timer? _documentHighlightTimer;
+  Timer? _cclsRefreshTimer;
   String? _cachedText, _bufferLineText, _openedFile;
   String _previousValue = "";
   TextSelection _prevSelection = const TextSelection.collapsed(offset: 0);
@@ -187,7 +189,7 @@ class CodeForgeController implements DeltaTextInputClient {
                   symbols != null) {
                 _usesCclsSemanticHighlight = true;
                 final tokens = _convertCclsSymbolsToTokens(symbols);
-                if (!_isDisposed && tokens.isNotEmpty) {
+                if (!_isDisposed) {
                   semanticTokens.value = (tokens, _semanticTokensVersion++);
                 }
               }
@@ -213,7 +215,7 @@ class CodeForgeController implements DeltaTextInputClient {
             String currentWord = '';
             if (text.isNotEmpty) {
               final match = RegExp(
-                r'\w+$',
+                r'[\w\u0600-\u06FF\u08A0-\u08FF\u0590-\u05FF]+$',
               ).firstMatch(text.substring(0, cursorPosition));
               if (match != null) {
                 currentWord = match.group(0)!;
@@ -250,6 +252,12 @@ class CodeForgeController implements DeltaTextInputClient {
   Future<void> _highlightListener() async {
     if (text != _previousValue && _lspReady) {
       await lspConfig!.updateDocument(openedFile!, text);
+
+      if (_usesCclsSemanticHighlight && !_isDisposed) {
+        semanticTokens.value = (null, _semanticTokensVersion++);
+        _scheduleCclsRefresh();
+      }
+
       _scheduleSemantictokenRefresh();
       _scheduleDocumentColorRefresh();
       _scheduleFoldRangesRefresh();
@@ -295,6 +303,18 @@ class CodeForgeController implements DeltaTextInputClient {
     _foldRangesTimer = Timer(const Duration(milliseconds: 50), () {
       if (!_isDisposed && _lspReady) {
         fetchLSPFoldRanges();
+      }
+    });
+  }
+
+  void _scheduleCclsRefresh() {
+    _cclsRefreshTimer?.cancel();
+    _cclsRefreshTimer = Timer(_cclsRefreshDebounce, () async {
+      if (!_isDisposed &&
+          _lspReady &&
+          _usesCclsSemanticHighlight &&
+          openedFile != null) {
+        await lspConfig!.saveDocument(openedFile!, text);
       }
     });
   }
@@ -2502,6 +2522,27 @@ class CodeForgeController implements DeltaTextInputClient {
   /// ```
   /// - When buffer is active, the method behaves the same but uses the buffer's
   ///   current line and column instead of `text`/`offset`.
+  /// Helper to check if a code unit is a valid identifier character
+  /// Includes ASCII alphanumerics, underscore, and RTL script ranges
+  bool _isIdentChar(int code) {
+    return (code >= 48 && code <= 57) || // 0-9
+        (code >= 65 && code <= 90) || // A-Z
+        (code >= 97 && code <= 122) || // a-z
+        code == 95 || // underscore
+        (code >= 0x0600 && code <= 0x06FF) || // Arabic
+        (code >= 0x08A0 && code <= 0x08FF) || // Extended Arabic
+        (code >= 0x0590 && code <= 0x05FF); // Hebrew
+  }
+
+  bool _isIdentStartChar(int code) {
+    return (code >= 65 && code <= 90) ||
+        (code >= 97 && code <= 122) ||
+        code == 95 ||
+        (code >= 0x0600 && code <= 0x06FF) ||
+        (code >= 0x08A0 && code <= 0x08FF) ||
+        (code >= 0x0590 && code <= 0x05FF);
+  }
+
   String getCurrentWordPrefix(String text, int offset) {
     final safeOffset = offset.clamp(0, text.length);
     if (isBufferActive) {
@@ -2512,22 +2553,13 @@ class CodeForgeController implements DeltaTextInputClient {
       int i = col - 1;
       while (i >= 0) {
         final code = lineText.codeUnitAt(i);
-        final isIdentChar =
-            (code >= 48 && code <= 57) ||
-            (code >= 65 && code <= 90) ||
-            (code >= 97 && code <= 122) ||
-            code == 95;
-        if (!isIdentChar) break;
+        if (!_isIdentChar(code)) break;
         i--;
       }
       final start = i + 1;
       if (start >= col) return '';
       final firstCode = lineText.codeUnitAt(start);
-      final isStartOk =
-          (firstCode >= 65 && firstCode <= 90) ||
-          (firstCode >= 97 && firstCode <= 122) ||
-          firstCode == 95;
-      if (!isStartOk) return '';
+      if (!_isIdentStartChar(firstCode)) return '';
       return lineText.substring(start, col);
     }
 
@@ -2535,22 +2567,13 @@ class CodeForgeController implements DeltaTextInputClient {
     int i = safeOffset - 1;
     while (i >= 0) {
       final code = text.codeUnitAt(i);
-      final isIdentChar =
-          (code >= 48 && code <= 57) ||
-          (code >= 65 && code <= 90) ||
-          (code >= 97 && code <= 122) ||
-          code == 95;
-      if (!isIdentChar) break;
+      if (!_isIdentChar(code)) break;
       i--;
     }
     final start = i + 1;
     if (start >= safeOffset) return '';
     final firstCode = text.codeUnitAt(start);
-    final isStartOk =
-        (firstCode >= 65 && firstCode <= 90) ||
-        (firstCode >= 97 && firstCode <= 122) ||
-        firstCode == 95;
-    if (!isStartOk) return '';
+    if (!_isIdentStartChar(firstCode)) return '';
     return text.substring(start, safeOffset);
   }
 
@@ -2755,15 +2778,16 @@ class CodeForgeController implements DeltaTextInputClient {
   bool _isAlpha(String s) {
     if (s.isEmpty) return false;
     final code = s.codeUnitAt(0);
-    return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+    return (code >= 65 && code <= 90) ||
+        (code >= 97 && code <= 122) ||
+        (code >= 0x0600 && code <= 0x06FF) ||
+        (code >= 0x08A0 && code <= 0x08FF) ||
+        (code >= 0x0590 && code <= 0x05FF);
   }
 
   Future<void> _fetchSemanticTokensFull() async {
     if (lspConfig == null) return;
     if (_usesCclsSemanticHighlight) {
-      if (!_isDisposed) {
-        semanticTokens.value = (null, _semanticTokensVersion++);
-      }
       return;
     }
 
@@ -3199,40 +3223,48 @@ class CodeForgeController implements DeltaTextInputClient {
     }
 
     if (actualInsertedText.contains('\n')) {
-      final currentText = text;
-      final textBeforeCursor = currentText.substring(0, offset);
-      final textAfterCursor = currentText.substring(offset);
-      final lines = textBeforeCursor.split('\n');
+      final isSingleNewline = actualInsertedText == '\n';
 
-      if (lines.isNotEmpty) {
-        final prevLine = lines[lines.length - 1];
-        final indentMatch = RegExp(r'^\s*').firstMatch(prevLine);
-        final prevIndent = indentMatch?.group(0) ?? '';
-        final shouldIndent = RegExp(r'[:{[(]\s*$').hasMatch(prevLine);
-        final extraIndent = shouldIndent ? '  ' : '';
-        final indent = prevIndent + extraIndent;
-        final openToClose = {'{': '}', '(': ')', '[': ']'};
-        final trimmedPrev = prevLine.trimRight();
-        final lastChar = trimmedPrev.isNotEmpty
-            ? trimmedPrev[trimmedPrev.length - 1]
-            : null;
-        final trimmedNext = textAfterCursor.trimLeft();
-        final nextChar = trimmedNext.isNotEmpty ? trimmedNext[0] : null;
-        final isBracketOpen = openToClose.containsKey(lastChar);
-        final isNextClosing =
-            isBracketOpen && openToClose[lastChar] == nextChar;
+      if (isSingleNewline) {
+        final currentText = text;
+        final textBeforeCursor = currentText.substring(0, offset);
+        final textAfterCursor = currentText.substring(offset);
+        final lines = textBeforeCursor.split('\n');
 
-        if (isBracketOpen && isNextClosing) {
-          actualInsertedText = '\n$indent\n$prevIndent';
-          actualSelection = TextSelection.collapsed(
-            offset: offset + 1 + indent.length,
-          );
-        } else {
-          actualInsertedText = '\n$indent';
-          actualSelection = TextSelection.collapsed(
-            offset: offset + actualInsertedText.length,
-          );
+        if (lines.isNotEmpty) {
+          final prevLine = lines[lines.length - 1];
+          final indentMatch = RegExp(r'^\s*').firstMatch(prevLine);
+          final prevIndent = indentMatch?.group(0) ?? '';
+          final shouldIndent = RegExp(r'[:{[(]\s*$').hasMatch(prevLine);
+          final extraIndent = shouldIndent ? '  ' : '';
+          final indent = prevIndent + extraIndent;
+          final openToClose = {'{': '}', '(': ')', '[': ']'};
+          final trimmedPrev = prevLine.trimRight();
+          final lastChar = trimmedPrev.isNotEmpty
+              ? trimmedPrev[trimmedPrev.length - 1]
+              : null;
+          final trimmedNext = textAfterCursor.trimLeft();
+          final nextChar = trimmedNext.isNotEmpty ? trimmedNext[0] : null;
+          final isBracketOpen = openToClose.containsKey(lastChar);
+          final isNextClosing =
+              isBracketOpen && openToClose[lastChar] == nextChar;
+
+          if (isBracketOpen && isNextClosing) {
+            actualInsertedText = '\n$indent\n$prevIndent';
+            actualSelection = TextSelection.collapsed(
+              offset: offset + 1 + indent.length,
+            );
+          } else {
+            actualInsertedText = '\n$indent';
+            actualSelection = TextSelection.collapsed(
+              offset: offset + actualInsertedText.length,
+            );
+          }
         }
+      } else {
+        actualSelection = TextSelection.collapsed(
+          offset: offset + actualInsertedText.length,
+        );
       }
 
       _flushBuffer();
@@ -3577,7 +3609,8 @@ class CodeForgeController implements DeltaTextInputClient {
   }
 
   static Set<String> _extractWords(String text) {
-    final regExp = RegExp(r'\b\w+\b');
+    // Include Arabic (\u0600-\u06FF), Extended Arabic (\u08A0-\u08FF), and Hebrew (\u0590-\u05FF)
+    final regExp = RegExp(r'[\w\u0600-\u06FF\u08A0-\u08FF\u0590-\u05FF]+');
     final set = <String>{};
     for (final match in regExp.allMatches(text)) {
       set.add(match.group(0)!);
