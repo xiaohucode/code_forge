@@ -436,6 +436,14 @@ class CodeForgeController implements DeltaTextInputClient {
   set currentlySelectedSuggestion(int? value) =>
       selectedSuggestionNotifier.value = value;
 
+  /// Clear LSP suggestions, hover info, code actions and signature help.
+  void clearAllSuggestions() {
+    suggestionsNotifier.value = null;
+    selectedSuggestionNotifier.value = null;
+    signatureNotifier.value = null;
+    codeActionsNotifier.value = null;
+  }
+
   /// Adds a line decoration to the editor.
   ///
   /// Line decorations can highlight code ranges with background colors,
@@ -1691,20 +1699,13 @@ class CodeForgeController implements DeltaTextInputClient {
   /// The character position will be clamped to the line's length.
   void insertText(String text, int line, int character) {
     if (readOnly) return;
-
     _flushBuffer();
 
-    // Clamp line to valid range
     final clampedLine = line.clamp(0, lineCount - 1);
-
-    // Get the line text to clamp character position
     final lineText = getLineText(clampedLine);
     final clampedChar = character.clamp(0, lineText.length);
-
-    // Calculate the offset
     final offset = getLineStartOffset(clampedLine) + clampedChar;
 
-    // Insert the text
     replaceRange(offset, offset, text);
   }
 
@@ -1731,24 +1732,19 @@ class CodeForgeController implements DeltaTextInputClient {
     if (sel.start < sel.end) {
       _flushBuffer();
 
-      // Check if we're deleting the entire first line of a folded range
       if (deleteFoldRangeOnDeletingFirstLine) {
         final startLine = _rope.getLineAtOffset(sel.start);
         final endLine = _rope.getLineAtOffset(sel.end);
 
-        // Check if selection is on a single line (or spans to next line's start)
         if (startLine == endLine ||
             (startLine + 1 == endLine &&
                 sel.end == _rope.getLineStartOffset(endLine))) {
           final lineStart = _rope.getLineStartOffset(startLine);
           final lineText = _rope.getLineText(startLine);
           final lineEnd = lineStart + lineText.length;
-
-          // Check if the entire line is selected (whole line or line without newline)
           final selectsWholeLine = sel.start <= lineStart && sel.end >= lineEnd;
 
           if (selectsWholeLine && _isFirstLineOfFoldedRange(startLine)) {
-            // Delete the entire folded range
             final foldRange = foldings[startLine]!;
             final foldStart = _rope.getLineStartOffset(foldRange.startIndex);
             final foldEndLine = foldRange.endIndex;
@@ -1762,8 +1758,6 @@ class CodeForgeController implements DeltaTextInputClient {
             _selection = TextSelection.collapsed(offset: foldStart);
             dirtyLine = _rope.getLineAtOffset(foldStart.clamp(0, _rope.length));
             lineStructureChanged = true;
-
-            // Remove the fold from the foldings map
             foldings.remove(startLine);
 
             _recordDeletion(
@@ -1879,24 +1873,19 @@ class CodeForgeController implements DeltaTextInputClient {
     if (sel.start < sel.end) {
       _flushBuffer();
 
-      // Check if we're deleting the entire first line of a folded range
       if (deleteFoldRangeOnDeletingFirstLine) {
         final startLine = _rope.getLineAtOffset(sel.start);
         final endLine = _rope.getLineAtOffset(sel.end);
 
-        // Check if selection is on a single line (or spans to next line's start)
         if (startLine == endLine ||
             (startLine + 1 == endLine &&
                 sel.end == _rope.getLineStartOffset(endLine))) {
           final lineStart = _rope.getLineStartOffset(startLine);
           final lineText = _rope.getLineText(startLine);
           final lineEnd = lineStart + lineText.length;
-
-          // Check if the entire line is selected (whole line or line without newline)
           final selectsWholeLine = sel.start <= lineStart && sel.end >= lineEnd;
 
           if (selectsWholeLine && _isFirstLineOfFoldedRange(startLine)) {
-            // Delete the entire folded range
             final foldRange = foldings[startLine]!;
             final foldStart = _rope.getLineStartOffset(foldRange.startIndex);
             final foldEndLine = foldRange.endIndex;
@@ -1910,8 +1899,6 @@ class CodeForgeController implements DeltaTextInputClient {
             _selection = TextSelection.collapsed(offset: foldStart);
             dirtyLine = _rope.getLineAtOffset(foldStart.clamp(0, _rope.length));
             lineStructureChanged = true;
-
-            // Remove the fold from the foldings map
             foldings.remove(startLine);
 
             _recordDeletion(

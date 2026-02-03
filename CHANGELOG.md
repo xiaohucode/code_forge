@@ -298,3 +298,7 @@ This release establishes **CodeForge** as a powerful, production-ready code edit
 - Selection handle positioning adapted for RTL layout
 - Ghost text (AI completion) positioning corrected for RTL
 - Inlay hints and document colors properly positioned for RTL
+
+## 8.0.1
+- FEATURE: Added `clearAllSuggestions()` API on controller to clear all suggestions.
+- Updated README.

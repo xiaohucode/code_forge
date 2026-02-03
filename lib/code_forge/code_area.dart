@@ -854,8 +854,6 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
       _suggestionNotifier.value = null;
     }
 
-    // For RTL, visual left end means end of line (high offset)
-    // For LTR, visual left end means start of line (low offset)
     if (widget.textDirection == TextDirection.rtl) {
       _controller.pressEndKey(isShiftPressed: withShift);
     } else {
@@ -868,8 +866,6 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
       _suggestionNotifier.value = null;
     }
 
-    // For RTL, visual right end means start of line (low offset)
-    // For LTR, visual right end means end of line (high offset)
     if (widget.textDirection == TextDirection.rtl) {
       _controller.pressHomeKey(isShiftPressed: withShift);
     } else {
@@ -4907,7 +4903,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       }
     }
 
-    // position.dx is already in paragraph-local coordinates (passed from handleEvent)
     double localX = position.dx;
 
     final colors =
