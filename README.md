@@ -38,82 +38,25 @@
 > code_forge does **not** support Flutter web, as it relies on `dart:io` for core functionality. Use [code_forge_web](https://pub.dev/packages/code_forge_web) for web support.
 
 
-<details>
-  <summary><h3>What's new in 8.0.0</h3></summary>
-  
-  ### ✨ Major Features
+### What's new in 8.1.0
+ - ENHANCEMENT: Enhanced RTL support
 
-#### 🌍 RTL (Right-to-Left) Language Support
-- FEATURE: Added comprehensive RTL support for right-to-left languages (Arabic, Hebrew, etc.)
-  - Added `textDirection` parameter to `CodeForge` widget to control text layout direction
-  - Gutter automatically positions on the right side for RTL mode
-  - Text rendering properly aligned for RTL languages with full visual direction support
-  - Caret positioning and movement follow visual direction (not logical) for intuitive editing
-  - Selection highlighting works correctly for RTL text
-  - All UI elements (fold icons, line numbers, indentation guides) properly mirrored for RTL
-  - Bracket pair highlighting supports RTL
-  - Scroll behavior adapted for RTL layout
-
-#### 🔤 RTL Text Input & Navigation
-- FEATURE: Arrow keys follow visual direction for RTL
-  - Left arrow visually moves left (logically moves right in RTL)
-  - Right arrow visually moves right (logically moves left in RTL)
-  - Home key moves to visual line start (line end in RTL)
-  - End key moves to visual line end (line start in RTL)
-  - Ctrl+Arrow word navigation follows visual direction for RTL
-- FEATURE: Arabic and Hebrew word detection for code completion
-  - Updated word pattern matching to include Arabic (U+0600-U+06FF), Extended Arabic (U+08A0-U+08FF), and Hebrew (U+0590-U+05FF) Unicode ranges
-  - LSP suggestions now work correctly for RTL languages
-  - Word cache includes RTL script characters
-  - Fold icons display correctly for RTL (< for folded, down arrow for unfolded)
-
-### 🎯 Hover Documentation Improvements
-- ENHANCEMENT: Improved hover popup positioning and visibility
-  - Hover documentation now positions above cursor if space is limited below
-  - Better width constraints and viewport-aware positioning
-  - Added hover content caching for improved performance
-  - Hover content is fetched asynchronously without blocking rendering
-  - Diagonal offset adjustment prevents hover from blocking cursor area
-- ENHANCEMENT: Hover triggered by tap on mobile/desktop now persists properly
-  - Added `onHoverSetByTap` callback for better tap-based hover handling
-  - Hover state properly managed to avoid flicker
-
-### 🔧 Code Improvements & Fixes
-- FIX: Auto-indentation now only triggers on single Enter key press
-  - Paste operations no longer re-indent pasted multi-line content incorrectly
-  - Only the first newline in pasted text triggers auto-indent
-- FIX: CCLS semantic highlighting refresh debouncing
-  - Added `_scheduleCclsRefresh` with 1 second debounce to avoid excessive document saves
-  - CCLS servers that use custom semantic token protocol now work more reliably
-- ENHANCEMENT: Better suggestion popup positioning
-  - Popup now positions above cursor when limited space below
-  - Horizontal alignment adjusted to stay within viewport
-  - Improved mobile responsiveness
-
-### 📊 Internal Changes
-- Modified paragraph style to respect textDirection property
-- Added RTL-aware cache invalidation for paragraph building
-- Improved caret info calculation for RTL text positioning
-- Enhanced text offset to line/char conversion for RTL
-- Selection handle positioning adapted for RTL layout
-- Ghost text (AI completion) positioning corrected for RTL
-- Inlay hints and document colors properly positioned for RTL
-</details>
-
-## ✨ Why CodeForge?
+## Why CodeForge?
+**Feature demos:** [CodeForge Features Showcase](https://heckmon.github.io/code_forge_demo/)
 
 **CodeForge** is a next-generation code editor widget designed for developers who demand more. Whether you're building an IDE, a code snippet viewer, or an educational coding platform, CodeForge delivers:
 
+
 | Feature | CodeForge | Others |
 |---------|:---------:|:------:|
-| 🎨 Syntax Highlighting | ✅ 180+ languages<br>[Availabe languages](https://github.com/reqable/re-highlight/tree/main/lib/languages) | ✅ |
-| 📁 Code Folding | ✅ Smart detection | ⚠️ Limited |
-| 🔌 LSP Integration | ✅ Full support | ❌ |
-| 🤖 AI Completion | ✅ Multi-model | ❌ |
-| ⚡ Semantic Tokens | ✅ Real-time | ❌ |
-| 🎯 Diagnostics | ✅ Inline errors | ❌ |
-| ↩️ Undo/Redo | ✅ Smart grouping | ⚠️ Basic |
-| 🎨 Full Theming | ✅ Everything<br>[Available themes](https://github.com/reqable/re-highlight/tree/main/lib/styles) | ⚠️ Limited |
+| Syntax Highlighting | 180+ languages<br>[Availabe languages](https://github.com/reqable/re-highlight/tree/main/lib/languages) | ✅ |
+| Code Folding | Smart detection | ⚠️ Limited |
+| LSP Integration | Full support | ❌ |
+| AI Completion | Multi-model | ❌ |
+| Semantic Tokens | Real-time | ❌ |
+| Diagnostics | Inline errors | ❌ |
+| Undo/Redo | Smart grouping | ⚠️ Basic |
+| Full Theming |[Available themes](https://github.com/reqable/re-highlight/tree/main/lib/styles) | ⚠️ Limited |
 
 ### What makes CodeForge different from other editors:
 - Uses the rope data structure instead of regular char array to to handle large text.
@@ -122,10 +65,6 @@
 - AI Code completion.
 
 ---
-
-## 🎬 Features
-
-**View all features with live demos:** [CodeForge Features Showcase](https://heckmon.github.io/code_forge_demo/)
 
 To see working examples of all CodeForge features including AI Code Completion, LSP Integration, Smart Code Folding, Syntax Highlighting, Search and Replace, and RTL Language Support, visit the features showcase page above.
 
@@ -175,7 +114,7 @@ Add CodeForge to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  code_forge: ^8.0.0
+  code_forge: ^8.1.0
 ```
 
 Then run:

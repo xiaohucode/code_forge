@@ -302,3 +302,6 @@ This release establishes **CodeForge** as a powerful, production-ready code edit
 ## 8.0.1
 - FEATURE: Added `clearAllSuggestions()` API on controller to clear all suggestions.
 - Updated README.
+
+## 8.1.0
+- ENHANCEMENT: Enhanced RTL support
