@@ -444,6 +444,47 @@ class CodeForgeController implements DeltaTextInputClient {
     codeActionsNotifier.value = null;
   }
 
+  /// Accepts the currently selected suggestion and inserts it at the cursor position.
+  ///
+  /// For mobile devices, uses [currentlySelectedSuggestion] to determine which
+  /// suggestion to accept. For desktop/non-mobile, uses the provided [selectedIndex].
+  ///
+  /// The method handles different suggestion types:
+  /// - [LspCompletion]: Uses the label property
+  /// - [Map]: Uses 'insertText' or 'label' key
+  /// - [String]: Uses the string directly
+  ///
+  /// After accepting, clears the suggestions and resets the selection index.
+  ///
+  /// Parameters:
+  /// - [selectedIndex]: The index of the selected suggestion for desktop/non-mobile.
+  ///   Defaults to 0 if not provided.
+  void acceptSuggestion({int selectedIndex = 0}) {
+    final suggestions = suggestionsNotifier.value;
+    if (suggestions == null || suggestions.isEmpty) return;
+
+    final isMobile = Platform.isAndroid || Platform.isIOS;
+    final selected = isMobile
+        ? suggestions[currentlySelectedSuggestion!]
+        : suggestions[selectedIndex];
+    String insertText = '';
+
+    if (selected is LspCompletion) {
+      insertText = selected.label;
+    } else if (selected is Map) {
+      insertText = selected['insertText'] ?? selected['label'] ?? '';
+    } else if (selected is String) {
+      insertText = selected;
+    }
+
+    if (insertText.isNotEmpty) {
+      insertAtCurrentCursor(insertText, replaceTypedChar: true);
+    }
+
+    suggestionsNotifier.value = null;
+    currentlySelectedSuggestion = 0;
+  }
+
   /// Adds a line decoration to the editor.
   ///
   /// Line decorations can highlight code ranges with background colors,

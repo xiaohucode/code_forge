@@ -3302,30 +3302,8 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
   }
 
   void _acceptSuggestion() {
-    final suggestions = _suggestionNotifier.value;
-    if (suggestions == null || suggestions.isEmpty) return;
-
-    final selected = _isMobileSuggActive
-        ? suggestions[_controller.currentlySelectedSuggestion!]
-        : suggestions[_sugSelIndex];
-    String insertText = '';
-
-    if (selected is LspCompletion) {
-      insertText = selected.label;
-    } else if (selected is Map) {
-      insertText = selected['insertText'] ?? selected['label'] ?? '';
-    } else if (selected is String) {
-      insertText = selected;
-    }
-
-    if (insertText.isNotEmpty) {
-      _controller.insertAtCurrentCursor(insertText, replaceTypedChar: true);
-    }
-
-    _suggestionNotifier.value = null;
-    _isMobileSuggActive
-        ? _controller.currentlySelectedSuggestion = 0
-        : _sugSelIndex = 0;
+    _controller.acceptSuggestion(selectedIndex: _sugSelIndex);
+    _sugSelIndex = 0;
   }
 
   void _acceptGhostText() {
