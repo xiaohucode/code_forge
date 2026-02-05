@@ -308,3 +308,6 @@ This release establishes **CodeForge** as a powerful, production-ready code edit
 
 ## 8.1.1
  - FEATURE: added a public API called `acceptSuggestion` in the controller to manually accept LSP suggestions.
+
+## 8.1.2
+- FIX: mobile scroll issue in RTL mode.
