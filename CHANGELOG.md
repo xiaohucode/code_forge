@@ -311,3 +311,8 @@ This release establishes **CodeForge** as a powerful, production-ready code edit
 
 ## 8.1.2
 - FIX: mobile scroll issue in RTL mode.
+
+## 8.2.0
+ - FIX: [#36](https://github.com/heckmon/code_forge/issues/36)
+ - FIX: [#35](https://github.com/heckmon/code_forge/issues/35)
+ - FEATURE: [#33](https://github.com/heckmon/code_forge/issues/33)

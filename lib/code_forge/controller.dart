@@ -236,7 +236,10 @@ class CodeForgeController implements DeltaTextInputClient {
             }
             _sortSuggestions(prefix);
             final triggerChar = text[cursorPosition - 1];
-            if (!_isAlpha(triggerChar)) {
+            final isTriggerChar = _isCompletionTriggerChar(triggerChar);
+            final isAlphaChar = _isAlpha(triggerChar);
+
+            if (!isTriggerChar && !isAlphaChar) {
               if (!_isDisposed) suggestionsNotifier.value = null;
               return;
             }
@@ -269,18 +272,21 @@ class CodeForgeController implements DeltaTextInputClient {
         final lineStartOffset = getLineStartOffset(line);
         final character = cursorPosition - lineStartOffset;
         final prefix = getCurrentWordPrefix(text, cursorPosition);
-        _suggestions = await lspConfig!.getCompletions(
-          openedFile!,
-          getLineAtOffset(selection.extentOffset),
-          character,
-        );
-        _sortSuggestions(prefix);
         final triggerChar = text[cursorPosition - 1];
-        if (!_isAlpha(triggerChar)) {
+        final isTriggerChar = _isCompletionTriggerChar(triggerChar);
+        final isAlphaChar = _isAlpha(triggerChar);
+
+        if (isTriggerChar || isAlphaChar) {
+          _suggestions = await lspConfig!.getCompletions(
+            openedFile!,
+            getLineAtOffset(selection.extentOffset),
+            character,
+          );
+          _sortSuggestions(prefix);
+          if (!_isDisposed) suggestionsNotifier.value = _suggestions;
+        } else {
           if (!_isDisposed) suggestionsNotifier.value = null;
-          return;
         }
-        if (!_isDisposed) suggestionsNotifier.value = _suggestions;
       } else {
         if (!_isDisposed) suggestionsNotifier.value = null;
       }
@@ -1658,7 +1664,9 @@ class CodeForgeController implements DeltaTextInputClient {
         if (delta.textInserted.length == 1) {
           _lastTypedCharacter = delta.textInserted;
         }
-        if (delta.textInserted.isNotEmpty && _isAlpha(delta.textInserted)) {
+        if (delta.textInserted.isNotEmpty &&
+            (_isAlpha(delta.textInserted) ||
+                _isCompletionTriggerChar(delta.textInserted))) {
           typingDetected = true;
         }
         _handleInsertion(
@@ -2811,6 +2819,11 @@ class CodeForgeController implements DeltaTextInputClient {
         (code >= 0x0600 && code <= 0x06FF) ||
         (code >= 0x08A0 && code <= 0x08FF) ||
         (code >= 0x0590 && code <= 0x05FF);
+  }
+
+  bool _isCompletionTriggerChar(String s) {
+    if (s.isEmpty) return false;
+    return s == '.' || s == ':' || s == '>' || s == '/' || s == '@';
   }
 
   Future<void> _fetchSemanticTokensFull() async {
