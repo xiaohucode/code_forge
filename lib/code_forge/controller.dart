@@ -73,6 +73,7 @@ class CodeForgeController implements DeltaTextInputClient {
   List<DocumentColor> _documentColors = [];
   List<DocumentHighlight> _documentHighlights = [];
   Map<int, FoldRange>? _lspFoldRanges;
+  bool _lspFoldRangesAdjustedNotFetched = false;
   bool _inlayHintsVisible = false;
   bool documentHighlightsChanged = false;
 
@@ -434,6 +435,10 @@ class CodeForgeController implements DeltaTextInputClient {
   /// LSP-provided fold ranges, or null if not available.
   /// If available, these should be used instead of the built-in fold range algorithm.
   Map<int, FoldRange>? get lspFoldRanges => _lspFoldRanges;
+
+  /// Returns true if LSP fold ranges were adjusted (not fetched fresh).
+  /// When true, the render object should not clear its fold cache.
+  bool get lspFoldRangesWereAdjusted => _lspFoldRangesAdjustedNotFetched;
 
   /// Returns the index of the currently selected seuggestion if an LSP/normal suggestion is available.
   ///
@@ -840,6 +845,7 @@ class CodeForgeController implements DeltaTextInputClient {
       } else {
         _lspFoldRanges = null;
       }
+      _lspFoldRangesAdjustedNotFetched = false;
 
       notifyListeners();
     } catch (e) {
@@ -851,7 +857,49 @@ class CodeForgeController implements DeltaTextInputClient {
   /// Clears LSP fold ranges, forcing fallback to built-in algorithm.
   void clearLSPFoldRanges() {
     _lspFoldRanges = null;
+    _lspFoldRangesAdjustedNotFetched = false;
     notifyListeners();
+  }
+
+  /// Adjusts LSP fold ranges after a line count change.
+  ///
+  /// [editLine] is the line where the edit occurred.
+  /// [lineDelta] is the number of lines added (positive) or removed (negative).
+  void adjustLspFoldRangesForLineChange(int editLine, int lineDelta) {
+    if (_lspFoldRanges == null || lineDelta == 0) return;
+
+    final adjustedLspFoldRanges = <int, FoldRange>{};
+
+    for (final entry in _lspFoldRanges!.entries) {
+      final oldStartIndex = entry.key;
+      final fold = entry.value;
+
+      if (fold.endIndex < editLine) {
+        adjustedLspFoldRanges[oldStartIndex] = fold;
+      } else if (fold.startIndex <= editLine && fold.endIndex >= editLine) {
+        final newEndIndex = fold.endIndex + lineDelta;
+        if (newEndIndex >= oldStartIndex) {
+          final newFold = FoldRange(oldStartIndex, newEndIndex);
+          newFold.isFolded = fold.isFolded;
+          newFold.originallyFoldedChildren = fold.originallyFoldedChildren;
+          adjustedLspFoldRanges[oldStartIndex] = newFold;
+        }
+      } else if (fold.startIndex > editLine) {
+        final newStartIndex = fold.startIndex + lineDelta;
+        final newEndIndex = fold.endIndex + lineDelta;
+        if (newStartIndex >= 0 && newEndIndex >= newStartIndex) {
+          final newFold = FoldRange(newStartIndex, newEndIndex);
+          newFold.isFolded = fold.isFolded;
+          newFold.originallyFoldedChildren = fold.originallyFoldedChildren;
+          adjustedLspFoldRanges[newStartIndex] = newFold;
+        }
+      }
+    }
+
+    _lspFoldRanges = adjustedLspFoldRanges.isEmpty
+        ? null
+        : adjustedLspFoldRanges;
+    _lspFoldRangesAdjustedNotFetched = true;
   }
 
   /// Convenience method to set git diff decorations for multiple line ranges.
@@ -1605,25 +1653,34 @@ class CodeForgeController implements DeltaTextInputClient {
     setSelectionSilently(newSelection);
   }
 
-  /// Duplicates the current line or selected lines.
+  /// Duplicates the current line or selected text.
   ///
-  /// If text is selected, duplicates the selected lines.
+  /// If text is selected, duplicates the selected text.
   /// If no selection, duplicates the line at the cursor position.
-  /// The cursor is moved to the start of the duplicated line.
+  /// The cursor is moved to the end of the duplicated content.
   /// Does nothing if the controller is read-only.
   void duplicateLine() {
     if (readOnly) return;
     final text = this.text;
     final selection = this.selection;
-    final caret = selection.extentOffset;
-    final prevNewline = (caret > 0) ? text.lastIndexOf('\n', caret - 1) : -1;
-    final nextNewline = text.indexOf('\n', caret);
-    final lineStart = prevNewline == -1 ? 0 : prevNewline + 1;
-    final lineEnd = nextNewline == -1 ? text.length : nextNewline;
-    final lineText = text.substring(lineStart, lineEnd);
 
-    replaceRange(lineEnd, lineEnd, '\n$lineText');
-    setSelectionSilently(TextSelection.collapsed(offset: lineEnd + 1));
+    if (selection.start != selection.end) {
+      final selectedText = text.substring(selection.start, selection.end);
+      replaceRange(selection.end, selection.end, selectedText);
+      setSelectionSilently(
+        TextSelection.collapsed(offset: selection.end + selectedText.length),
+      );
+    } else {
+      final caret = selection.extentOffset;
+      final prevNewline = (caret > 0) ? text.lastIndexOf('\n', caret - 1) : -1;
+      final nextNewline = text.indexOf('\n', caret);
+      final lineStart = prevNewline == -1 ? 0 : prevNewline + 1;
+      final lineEnd = nextNewline == -1 ? text.length : nextNewline;
+      final lineText = text.substring(lineStart, lineEnd);
+
+      replaceRange(lineEnd, lineEnd, '\n$lineText');
+      setSelectionSilently(TextSelection.collapsed(offset: lineEnd + 1));
+    }
   }
 
   @protected
@@ -1793,31 +1850,64 @@ class CodeForgeController implements DeltaTextInputClient {
           final lineEnd = lineStart + lineText.length;
           final selectsWholeLine = sel.start <= lineStart && sel.end >= lineEnd;
 
-          if (selectsWholeLine && _isFirstLineOfFoldedRange(startLine)) {
-            final foldRange = foldings[startLine]!;
-            final foldStart = _rope.getLineStartOffset(foldRange.startIndex);
-            final foldEndLine = foldRange.endIndex;
-            final foldEndLineText = _rope.getLineText(foldEndLine);
-            final foldEnd =
-                _rope.getLineStartOffset(foldEndLine) + foldEndLineText.length;
+          if (selectsWholeLine) {
+            FoldRange? foldToDelete;
 
-            deletedText = _rope.substring(foldStart, foldEnd);
-            _rope.delete(foldStart, foldEnd);
-            _currentVersion++;
-            _selection = TextSelection.collapsed(offset: foldStart);
-            dirtyLine = _rope.getLineAtOffset(foldStart.clamp(0, _rope.length));
-            lineStructureChanged = true;
-            foldings.remove(startLine);
+            if (_isFirstLineOfFoldedRange(startLine)) {
+              foldToDelete = foldings[startLine];
+            } else {
+              for (final fold in foldings.values) {
+                if (fold != null && fold.isFolded) {
+                  if (startLine > fold.startIndex &&
+                      startLine <= fold.endIndex) {
+                    for (final child in fold.originallyFoldedChildren) {
+                      if (child.startIndex == startLine) {
+                        foldToDelete = child;
+                        break;
+                      }
+                    }
+                    if (foldToDelete != null) break;
+                  }
+                }
+              }
+            }
 
-            _recordDeletion(
-              foldStart,
-              deletedText,
-              selectionBefore,
-              _selection,
-            );
-            _syncToConnection();
-            notifyListeners();
-            return;
+            if (foldToDelete != null) {
+              final foldStart = _rope.getLineStartOffset(
+                foldToDelete.startIndex,
+              );
+              final foldEndLine = foldToDelete.endIndex;
+              final foldEndLineText = _rope.getLineText(foldEndLine);
+              final foldEnd =
+                  _rope.getLineStartOffset(foldEndLine) +
+                  foldEndLineText.length;
+
+              deletedText = _rope.substring(foldStart, foldEnd);
+              _rope.delete(foldStart, foldEnd);
+              _currentVersion++;
+              _selection = TextSelection.collapsed(offset: foldStart);
+              dirtyLine = _rope.getLineAtOffset(
+                foldStart.clamp(0, _rope.length),
+              );
+              lineStructureChanged = true;
+              foldings.remove(foldToDelete.startIndex);
+
+              for (final fold in foldings.values) {
+                if (fold != null) {
+                  fold.originallyFoldedChildren.remove(foldToDelete);
+                }
+              }
+
+              _recordDeletion(
+                foldStart,
+                deletedText,
+                selectionBefore,
+                _selection,
+              );
+              _syncToConnection();
+              notifyListeners();
+              return;
+            }
           }
         }
       }
@@ -1934,31 +2024,64 @@ class CodeForgeController implements DeltaTextInputClient {
           final lineEnd = lineStart + lineText.length;
           final selectsWholeLine = sel.start <= lineStart && sel.end >= lineEnd;
 
-          if (selectsWholeLine && _isFirstLineOfFoldedRange(startLine)) {
-            final foldRange = foldings[startLine]!;
-            final foldStart = _rope.getLineStartOffset(foldRange.startIndex);
-            final foldEndLine = foldRange.endIndex;
-            final foldEndLineText = _rope.getLineText(foldEndLine);
-            final foldEnd =
-                _rope.getLineStartOffset(foldEndLine) + foldEndLineText.length;
+          if (selectsWholeLine) {
+            FoldRange? foldToDelete;
 
-            deletedText = _rope.substring(foldStart, foldEnd);
-            _rope.delete(foldStart, foldEnd);
-            _currentVersion++;
-            _selection = TextSelection.collapsed(offset: foldStart);
-            dirtyLine = _rope.getLineAtOffset(foldStart.clamp(0, _rope.length));
-            lineStructureChanged = true;
-            foldings.remove(startLine);
+            if (_isFirstLineOfFoldedRange(startLine)) {
+              foldToDelete = foldings[startLine];
+            } else {
+              for (final fold in foldings.values) {
+                if (fold != null && fold.isFolded) {
+                  if (startLine > fold.startIndex &&
+                      startLine <= fold.endIndex) {
+                    for (final child in fold.originallyFoldedChildren) {
+                      if (child.startIndex == startLine) {
+                        foldToDelete = child;
+                        break;
+                      }
+                    }
+                    if (foldToDelete != null) break;
+                  }
+                }
+              }
+            }
 
-            _recordDeletion(
-              foldStart,
-              deletedText,
-              selectionBefore,
-              _selection,
-            );
-            _syncToConnection();
-            notifyListeners();
-            return;
+            if (foldToDelete != null) {
+              final foldStart = _rope.getLineStartOffset(
+                foldToDelete.startIndex,
+              );
+              final foldEndLine = foldToDelete.endIndex;
+              final foldEndLineText = _rope.getLineText(foldEndLine);
+              final foldEnd =
+                  _rope.getLineStartOffset(foldEndLine) +
+                  foldEndLineText.length;
+
+              deletedText = _rope.substring(foldStart, foldEnd);
+              _rope.delete(foldStart, foldEnd);
+              _currentVersion++;
+              _selection = TextSelection.collapsed(offset: foldStart);
+              dirtyLine = _rope.getLineAtOffset(
+                foldStart.clamp(0, _rope.length),
+              );
+              lineStructureChanged = true;
+              foldings.remove(foldToDelete.startIndex);
+
+              for (final fold in foldings.values) {
+                if (fold != null) {
+                  fold.originallyFoldedChildren.remove(foldToDelete);
+                }
+              }
+
+              _recordDeletion(
+                foldStart,
+                deletedText,
+                selectionBefore,
+                _selection,
+              );
+              _syncToConnection();
+              notifyListeners();
+              return;
+            }
           }
         }
       }

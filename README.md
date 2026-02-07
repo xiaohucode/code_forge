@@ -38,10 +38,10 @@
 > code_forge does **not** support Flutter web, as it relies on `dart:io` for core functionality. Use [code_forge_web](https://pub.dev/packages/code_forge_web) for web support.
 
 
-### What's new in 8.2.0
- - FIX: [#36](https://github.com/heckmon/code_forge/issues/36)
- - FIX: [#35](https://github.com/heckmon/code_forge/issues/35)
- - FEATURE: [#33](https://github.com/heckmon/code_forge/issues/33)
+### What's new in 8.3.0
+  - FIX: [#37](https://github.com/heckmon/code_forge/issues/37)
+  - FIX: [#36](https://github.com/heckmon/code_forge/issues/36)
+  - FEATURE: [#38](https://github.com/heckmon/code_forge/issues/38)
 
 ## Why CodeForge?
 **Feature demos:** [CodeForge Features Showcase](https://heckmon.github.io/code_forge_demo/)
@@ -116,7 +116,7 @@ Add CodeForge to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  code_forge: ^8.2.0
+  code_forge: ^8.3.0
 ```
 
 Then run:
