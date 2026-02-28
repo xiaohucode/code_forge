@@ -332,3 +332,6 @@ This release establishes **CodeForge** as a powerful, production-ready code edit
 ## 8.5.0
   - FIX: [#47](https://github.com/heckmon/code_forge/issues/47)
   - FIX: [#41](https://github.com/heckmon/code_forge/issues/41)
+
+## 8.5.1
+  - FEATURE: Enhanced Mac keyboard support
