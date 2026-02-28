@@ -24,12 +24,6 @@ import 'package:vector_math/vector_math_64.dart' show Vector3;
 
 const String _wordCharPattern = r'[\w\u0600-\u06FF\u08A0-\u08FF\u0590-\u05FF]';
 
-class _BracketEntry {
-  final String char;
-  final int line;
-  _BracketEntry(this.char, this.line);
-}
-
 /// A highly customizable code editor widget for Flutter.
 ///
 /// [CodeForge] provides a feature-rich code editing experience with support for:
@@ -287,6 +281,9 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
   late final VoidCallback _semanticTokensListener;
   late final VoidCallback _controllerListener;
   late final bool _deleteFoldRangeOnDeletingFirstLine;
+  late final VoidCallback _signatureListener, _hoverListener;
+  late final VoidCallback _isHoveringPopupListener, _selectedSuggestionListener;
+  late bool _readOnly;
   final ValueNotifier<Offset> _offsetNotifier = ValueNotifier(Offset(0, 0));
   final ValueNotifier<Offset?> _lspActionOffsetNotifier = ValueNotifier(null);
   final _isMobile = Platform.isAndroid || Platform.isIOS;
@@ -294,7 +291,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
   final _actionScrollController = ScrollController();
   final Map<String, String> _suggestionDetailsCache = {};
   final Map<String, Map<String, dynamic>> _hoverCache = {};
-  late bool _readOnly;
+  final _isMac = Platform.isMacOS;
   TextInputConnection? _connection;
   StreamSubscription? _lspResponsesSubscription;
   bool _isHovering = false, _isSignatureInvoked = false;
@@ -306,10 +303,6 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
   String? _selectedSuggestionMd;
   Timer? _hoverTimer;
   bool _hoverSetByTap = false;
-  late final VoidCallback _signatureListener;
-  late final VoidCallback _hoverListener;
-  late final VoidCallback _isHoveringPopupListener;
-  late final VoidCallback _selectedSuggestionListener;
 
   @override
   void initState() {
@@ -1406,6 +1399,10 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
 
                                                 if (event is KeyDownEvent ||
                                                     event is KeyRepeatEvent) {
+                                                  final isAltPressed =
+                                                      HardwareKeyboard
+                                                          .instance
+                                                          .isAltPressed;
                                                   final isShiftPressed =
                                                       HardwareKeyboard
                                                           .instance
@@ -1790,6 +1787,63 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                                                   isShiftPressed,
                                                             );
                                                         _commonKeyFunctions();
+                                                        return KeyEventResult
+                                                            .handled;
+                                                      default:
+                                                        break;
+                                                    }
+                                                  }
+
+                                                  if (isAltPressed &&
+                                                      !isCtrlPressed &&
+                                                      _isMac) {
+                                                    switch (event.logicalKey) {
+                                                      case LogicalKeyboardKey
+                                                          .arrowLeft:
+                                                        if (widget
+                                                                .textDirection ==
+                                                            TextDirection.rtl) {
+                                                          _moveWordRight(
+                                                            isShiftPressed,
+                                                          );
+                                                        } else {
+                                                          _moveWordLeft(
+                                                            isShiftPressed,
+                                                          );
+                                                        }
+                                                        _commonKeyFunctions();
+                                                        return KeyEventResult
+                                                            .handled;
+                                                      case LogicalKeyboardKey
+                                                          .arrowRight:
+                                                        if (widget
+                                                                .textDirection ==
+                                                            TextDirection.rtl) {
+                                                          _moveWordLeft(
+                                                            isShiftPressed,
+                                                          );
+                                                        } else {
+                                                          _moveWordRight(
+                                                            isShiftPressed,
+                                                          );
+                                                        }
+                                                        _commonKeyFunctions();
+                                                        return KeyEventResult
+                                                            .handled;
+                                                      case LogicalKeyboardKey
+                                                          .backspace:
+                                                        if (!_readOnly) {
+                                                          _deleteWordBackward();
+                                                          _commonKeyFunctions();
+                                                        }
+                                                        return KeyEventResult
+                                                            .handled;
+                                                      case LogicalKeyboardKey
+                                                          .delete:
+                                                        if (!_readOnly) {
+                                                          _deleteWordForward();
+                                                          _commonKeyFunctions();
+                                                        }
                                                         return KeyEventResult
                                                             .handled;
                                                       default:
@@ -9580,4 +9634,10 @@ class RTLAwareScrollPhysics extends ClampingScrollPhysics {
     }
     return super.createBallisticSimulation(position, velocity);
   }
+}
+
+class _BracketEntry {
+  final String char;
+  final int line;
+  _BracketEntry(this.char, this.line);
 }
