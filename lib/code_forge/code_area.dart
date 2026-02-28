@@ -3537,7 +3537,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   final Map<int, FoldRange?> _foldRanges = {};
   final Map<int, int?> _bracketCache = {};
 
-
   void _invalidateFoldRanges([int startLine = 0]) {
     if (startLine <= 0) {
       _foldRanges.clear();
@@ -3545,6 +3544,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       _foldRanges.removeWhere((key, _) => key >= startLine);
     }
   }
+
   final Map<
     int,
     List<({int startLine, int endLine, int indentLevel, double guideX})>
