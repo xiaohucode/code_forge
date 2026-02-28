@@ -38,9 +38,9 @@
 > code_forge does **not** support Flutter web, as it relies on `dart:io` for core functionality. Use [code_forge_web](https://pub.dev/packages/code_forge_web) for web support.
 
 
-### What's new in 8.4.0
- - FEATURE: [#39](https://github.com/heckmon/code_forge/issues/39)
- - FIX: html/xml guide lines.
+### What's new in 8.5.0
+  - FIX: [#47](https://github.com/heckmon/code_forge/issues/47)
+  - FIX: [#41](https://github.com/heckmon/code_forge/issues/41)
 
 ## Why CodeForge?
 **Feature demos:** [CodeForge Features Showcase](https://heckmon.github.io/code_forge_demo/)
@@ -115,7 +115,7 @@ Add CodeForge to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  code_forge: ^8.4.1
+  code_forge: ^8.5.0
 ```
 
 Then run:
@@ -717,7 +717,7 @@ CodeForge supports a variety of keyboard shortcuts for efficient editing:
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Whether it's bug fixes, new features, or documentation improvements.
 
@@ -732,14 +732,6 @@ Contributions are welcome! Whether it's bug fixes, new features, or documentatio
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](https://github.com/heckmon/code_forge/blob/main/LICENSE) file for details.
-
----
-
-## 🙏 Acknowledgments
-
-- [re_highlight](https://pub.dev/packages/re_highlight) — Syntax highlighting
-- [markdown_widget](https://pub.dev/packages/markdown_widget) — Markdown rendering
-- [web_socket_channel](https://pub.dev/packages/web_socket_channel) — WebSocket support
 
 ---
 
