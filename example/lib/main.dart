@@ -47,9 +47,15 @@ class _MyAppState extends State<MyApp> {
           onPressed: () {
             codeController?.setGitDiffDecorations(
               addedRanges: [(1, 5), (10, 25)],
-              removedRanges: [(30, 37)],
+              removedRanges: [
+                (
+                  afterLine: 29,
+                  content:
+                      'final x = 10;\nfinal y = 20;\nprint("removed line");',
+                ),
+              ],
             );
-            codeController?.scrollToLine(100);
+            codeController?.scrollToLine(30);
           },
         ),
         body: SafeArea(
@@ -87,6 +93,12 @@ class _MyAppState extends State<MyApp> {
                 ),
                 finderBuilder: (c, controller) =>
                     FindPanelView(controller: controller),
+                customCodeSnippets: CustomCodeSnippets(
+                  snippets: {
+                    "if": "if(condition){\n\n}",
+                    "if-else": "if(condition){\n\n} else {\n\n}",
+                  },
+                ),
               );
             },
           ),

@@ -38,10 +38,12 @@
 > code_forge does **not** support Flutter web, as it relies on `dart:io` for core functionality. Use [code_forge_web](https://pub.dev/packages/code_forge_web) for web support.
 
 
-### What's new in 8.5.1
-  - FIX: [#47](https://github.com/heckmon/code_forge/issues/47)
-  - FIX: [#41](https://github.com/heckmon/code_forge/issues/41)
-  - FEATURE: Enhanced mac keyboard support.
+### What's new in 9.0.0
+  - #### FEATURE: Multi-cursor
+      - Alt + Click to add multiple cursors in the editor.
+  - #### FIX: [#43](https://github.com/heckmon/code_forge/issues/43)
+  - #### ENHANCEMENT: Virtual lines for git diff removed ranges.
+  - #### Added `customCodeSnippets` parameter on the editor to add external code snippets on the suggestions as requested in [#46](https://github.com/heckmon/code_forge/issues/46)
 
 ## Why CodeForge?
 **Feature demos:** [CodeForge Features Showcase](https://heckmon.github.io/code_forge_demo/)
@@ -116,7 +118,7 @@ Add CodeForge to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  code_forge: ^8.5.1
+  code_forge: ^9.0.0
 ```
 
 Then run:
@@ -469,6 +471,7 @@ CodeForge(
 | `enableSuggestions` | `bool` | Enable autocomplete suggestions |
 | `enableKeyboardSuggestions` | `bool` | Show auto completions in OS virtual keyboard |
 | `keyboardType` | `TextInputType` | Type of virtual keyboard |
+| `customSnippets` | `CustomSnippets` | Add custom code snippets to the suggestions |
 | `deleteFoldRangeOnDeletingFirstLine` | `bool` | When true, deleting the first line of a folded block removes the entire block |
 | `finderBuilder` | `PreferredSizeWidget Function(FindController findController)?` | Builder for custom Finder widget |
 
@@ -571,6 +574,12 @@ controller.pressDocumentHomeKey(isShiftPressed: false);
 controller.pressDocumentEndKey(isShiftPressed: false);
 controller.pressWordLeftArrowKey(isShiftPressed: false);
 controller.pressWordRightArrowKey(isShiftPressed: false);
+
+// Multi-cursor operations
+controller.addMultiCursor(int line, int character);
+controller.clearMultiCursor();
+controller.backspaceAtAllCursors();
+controller.insertAtAllCursors(String textToInsert);
 
 ```
 There are more methods available in the CodeForgeController API. You can see the complete list [here](https://pub.dev/documentation/code_forge/latest/code_forge_controller/CodeForgeController-class.html#instance-methods)
@@ -684,6 +693,7 @@ CodeForge supports a variety of keyboard shortcuts for efficient editing:
 - **Ctrl+Y** — Redo last action.
 - **Ctrl+Backspace** — Delete word backward.
 - **Ctrl+Delete** — Delete word forward.
+- **Alt + Click** — Multi-cursor.
 
 ### Navigation
 - **Ctrl+Arrow Left** — Move cursor to previous word.

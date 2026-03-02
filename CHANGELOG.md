@@ -335,3 +335,19 @@ This release establishes **CodeForge** as a powerful, production-ready code edit
 
 ## 8.5.1
   - FEATURE: Enhanced Mac keyboard support
+
+## 9.0.0
+  - #### FEATURE: Multi-cursor
+      - Alt + Click to add multiple cursors in the editor.
+      - APIs:
+      ```dart
+      // Multi-cursor operations
+      controller.addMultiCursor(int line, int character);
+      controller.clearMultiCursor();
+      controller.backspaceAtAllCursors();
+      controller.insertAtAllCursors(String textToInsert);
+
+      ```
+  - #### FIX: [#43](https://github.com/heckmon/code_forge/issues/43)
+  - #### ENHANCEMENT: Virtual lines for git diff removed ranges.
+  - #### Added `customCodeSnippets` parameter on the editor to add external code snippets on the suggestions as requested in [#46](https://github.com/heckmon/code_forge/issues/46)
