@@ -93,12 +93,18 @@ class _MyAppState extends State<MyApp> {
                 ),
                 finderBuilder: (c, controller) =>
                     FindPanelView(controller: controller),
-                customCodeSnippets: CustomCodeSnippets(
-                  snippets: {
-                    "if": "if(condition){\n\n}",
-                    "if-else": "if(condition){\n\n} else {\n\n}",
-                  },
-                ),
+                customCodeSnippets: [
+                  CustomCodeSnippet(
+                    label: 'if',
+                    value: 'if (condition) {\n  \n}',
+                    cursorLocations: {4},
+                  ),
+                  CustomCodeSnippet(
+                    label: 'if-else',
+                    value: 'if (condition) {\n  \n} else {\n  \n}',
+                    cursorLocations: {18, 31},
+                  ),
+                ],
               );
             },
           ),

@@ -351,3 +351,7 @@ This release establishes **CodeForge** as a powerful, production-ready code edit
   - #### FIX: [#43](https://github.com/heckmon/code_forge/issues/43)
   - #### ENHANCEMENT: Virtual lines for git diff removed ranges.
   - #### Added `customCodeSnippets` parameter on the editor to add external code snippets on the suggestions as requested in [#46](https://github.com/heckmon/code_forge/issues/46)
+
+## 9.1.0
+  - FIX: [#49](https://github.com/heckmon/code_forge/issues/49)
+  - FIX: [#50](https://github.com/heckmon/code_forge/issues/50)

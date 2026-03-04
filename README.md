@@ -38,12 +38,9 @@
 > code_forge does **not** support Flutter web, as it relies on `dart:io` for core functionality. Use [code_forge_web](https://pub.dev/packages/code_forge_web) for web support.
 
 
-### What's new in 9.0.0
-  - #### FEATURE: Multi-cursor
-      - Alt + Click to add multiple cursors in the editor.
-  - #### FIX: [#43](https://github.com/heckmon/code_forge/issues/43)
-  - #### ENHANCEMENT: Virtual lines for git diff removed ranges.
-  - #### Added `customCodeSnippets` parameter on the editor to add external code snippets on the suggestions as requested in [#46](https://github.com/heckmon/code_forge/issues/46)
+### What's new in 9.1.0
+  - FIX: [#49](https://github.com/heckmon/code_forge/issues/49)
+  - FIX: [#50](https://github.com/heckmon/code_forge/issues/50)
 
 ## Why CodeForge?
 **Feature demos:** [CodeForge Features Showcase](https://heckmon.github.io/code_forge_demo/)
@@ -118,7 +115,7 @@ Add CodeForge to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  code_forge: ^9.0.0
+  code_forge: ^9.1.0
 ```
 
 Then run:
@@ -471,7 +468,7 @@ CodeForge(
 | `enableSuggestions` | `bool` | Enable autocomplete suggestions |
 | `enableKeyboardSuggestions` | `bool` | Show auto completions in OS virtual keyboard |
 | `keyboardType` | `TextInputType` | Type of virtual keyboard |
-| `customSnippets` | `CustomSnippets` | Add custom code snippets to the suggestions |
+| `customCodeSnippets` | `List<CustomCodeSnippet>?` | Custom code snippets shown in the suggestion popup |
 | `deleteFoldRangeOnDeletingFirstLine` | `bool` | When true, deleting the first line of a folded block removes the entire block |
 | `finderBuilder` | `PreferredSizeWidget Function(FindController findController)?` | Builder for custom Finder widget |
 
