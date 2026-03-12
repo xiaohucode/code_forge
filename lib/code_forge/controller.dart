@@ -46,7 +46,7 @@ class CodeForgeController implements DeltaTextInputClient {
   Timer? _flushTimer, _semanticTokenTimer, _codeActionTimer, _syncTimer;
   Timer? _documentColorTimer, _foldRangesTimer, _documentHighlightTimer;
   Timer? _cclsRefreshTimer, _debounceTimer;
-  String? _cachedText, _bufferLineText, _openedFile;
+  String? _cachedText, _bufferLineText, _openedFile, _lastSentText;
   String _previousValue = "";
   TextSelection _prevSelection = const TextSelection.collapsed(offset: 0);
   bool _bufferDirty = false, bufferNeedsRepaint = false, selectionOnly = false;
@@ -54,7 +54,6 @@ class CodeForgeController implements DeltaTextInputClient {
   int _cachedTextVersion = -1, _currentVersion = 0, _semanticTokensVersion = 0;
   int? dirtyLine, _bufferLineIndex;
   bool deleteFoldRangeOnDeletingFirstLine = false;
-  String? _lastSentText;
   TextSelection? _lastSentSelection;
   String? _lastTypedCharacter;
   UndoRedoController? _undoController;
@@ -107,6 +106,13 @@ class CodeForgeController implements DeltaTextInputClient {
                 await applyWorkspaceEdit(params);
               }
             }
+          }
+
+          if (data['method'] == 'workspace/configuration') {
+            final id = data['id'];
+            await lspConfig!.sendResponse(id, [
+              lspConfig!.workspaceConfiguration,
+            ]);
           }
 
           if (data['method'] == 'textDocument/publishDiagnostics') {
@@ -380,12 +386,18 @@ class CodeForgeController implements DeltaTextInputClient {
   ///
   /// This map is automatically populated based on code structure
   /// (braces, indentation, etc.) when folding is enabled.
-  Map<int, FoldRange?> foldings = {};
+  ///
+  /// Use the setter to update this map — it rebuilds internal sorted caches
+  /// used for O(log n) fold-region lookups.
+  Map<int, FoldRange?> get foldings => _foldings;
 
-  /// Checks if the given line is the first line of a currently folded range.
-  bool _isFirstLineOfFoldedRange(int lineIndex) {
-    final fold = foldings[lineIndex];
-    return fold != null && fold.isFolded;
+  Map<int, FoldRange?> _foldings = {};
+  List<int> _foldedStartsSorted = [];
+  List<int> _foldedEndsSorted = [];
+
+  set foldings(Map<int, FoldRange?> value) {
+    _foldings = value;
+    _rebuildFoldSortedCache();
   }
 
   /// List of search highlights to display in the editor.
@@ -2525,6 +2537,32 @@ class CodeForgeController implements DeltaTextInputClient {
     }
   }
 
+  void _rebuildFoldSortedCache() {
+    final starts = <int>[];
+    final ends = <int>[];
+    for (final fold in _foldings.values) {
+      if (fold != null && fold.isFolded) {
+        starts.add(fold.startIndex);
+        ends.add(fold.endIndex);
+      }
+    }
+
+    if (starts.length > 1) {
+      final indices = List.generate(starts.length, (i) => i);
+      indices.sort((a, b) => starts[a].compareTo(starts[b]));
+      _foldedStartsSorted = [for (final i in indices) starts[i]];
+      _foldedEndsSorted = [for (final i in indices) ends[i]];
+    } else {
+      _foldedStartsSorted = starts;
+      _foldedEndsSorted = ends;
+    }
+  }
+
+  bool _isFirstLineOfFoldedRange(int lineIndex) {
+    final fold = foldings[lineIndex];
+    return fold != null && fold.isFolded;
+  }
+
   @protected
   @override
   void connectionClosed() {
@@ -4122,22 +4160,45 @@ class CodeForgeController implements DeltaTextInputClient {
   }
 
   bool _isLineInFoldedRegion(int lineIndex) {
-    return foldings.values.any(
-      (fold) =>
-          fold != null &&
-          fold.isFolded &&
-          lineIndex > fold.startIndex &&
-          lineIndex <= fold.endIndex,
-    );
+    final starts = _foldedStartsSorted;
+    final ends = _foldedEndsSorted;
+    if (starts.isEmpty) return false;
+
+    int lo = 0, hi = starts.length - 1;
+    while (lo <= hi) {
+      final mid = (lo + hi) >> 1;
+      if (starts[mid] < lineIndex) {
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+
+    for (int i = hi; i >= 0; i--) {
+      if (starts[i] >= lineIndex) continue;
+      if (ends[i] >= lineIndex) return true;
+      if (lineIndex - starts[i] > 100000) break;
+    }
+    return false;
   }
 
   int? _getFoldStartForLine(int lineIndex) {
-    for (final fold in foldings.values.where((f) => f != null)) {
-      if (fold!.isFolded &&
-          lineIndex > fold.startIndex &&
-          lineIndex <= fold.endIndex) {
-        return fold.startIndex;
+    final starts = _foldedStartsSorted;
+    final ends = _foldedEndsSorted;
+    if (starts.isEmpty) return null;
+    int lo = 0, hi = starts.length - 1;
+    while (lo <= hi) {
+      final mid = (lo + hi) >> 1;
+      if (starts[mid] < lineIndex) {
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
       }
+    }
+    for (int i = hi; i >= 0; i--) {
+      if (starts[i] >= lineIndex) continue;
+      if (ends[i] >= lineIndex) return starts[i];
+      if (lineIndex - starts[i] > 100000) break;
     }
     return null;
   }

@@ -79,6 +79,8 @@ class LspStdioConfig extends LspConfig {
     this.args,
     this.environment,
     super.capabilities,
+    super.initializationOptions,
+    super.workspaceConfiguration,
     super.disableWarning,
     super.disableError,
   });
@@ -88,6 +90,8 @@ class LspStdioConfig extends LspConfig {
     required String workspacePath,
     required String languageId,
     LspClientCapabilities capabilities = const LspClientCapabilities(),
+    Map<String, dynamic> initializationOptions = const {},
+    Map<String, dynamic> workspaceConfiguration = const {},
     List<String>? args,
     Map<String, String>? environment,
     bool disableWarning = false,
@@ -102,6 +106,8 @@ class LspStdioConfig extends LspConfig {
       disableWarning: disableWarning,
       disableError: disableError,
       capabilities: capabilities,
+      initializationOptions: initializationOptions,
+      workspaceConfiguration: workspaceConfiguration,
     );
     await config._startProcess();
     return config;
@@ -161,7 +167,7 @@ class LspStdioConfig extends LspConfig {
   }
 
   @override
-  Future<Map<String, dynamic>> _sendRequest({
+  Future<Map<String, dynamic>> sendRequest({
     required String method,
     required Map<String, dynamic> params,
   }) async {
@@ -181,7 +187,7 @@ class LspStdioConfig extends LspConfig {
   }
 
   @override
-  Future<void> _sendNotification({
+  Future<void> sendNotification({
     required String method,
     required Map<String, dynamic> params,
   }) async {
@@ -190,6 +196,20 @@ class LspStdioConfig extends LspConfig {
       'method': method,
       'params': params,
     });
+  }
+
+  @override
+  Future<Map<String, dynamic>> sendResponse(
+    int id,
+    List<dynamic> result,
+  ) async {
+    final request = {'jsonrpc': '2.0', 'id': id, 'result': result};
+    await _sendLspMessage(request);
+
+    return await _responseController.stream.firstWhere(
+      (response) => response['id'] == id,
+      orElse: () => throw TimeoutException('No response for request $id'),
+    );
   }
 
   Future<void> _sendLspMessage(Map<String, dynamic> message) async {

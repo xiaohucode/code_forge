@@ -32,12 +32,20 @@ sealed class LspConfig {
   /// Whether to disable errors from the LSP server.
   final bool disableError;
 
+  /// Options passed to the language server during initialization.
+  /// These options are sent in the 'initialize' request and can configure server behavior.
+  final Map<String, dynamic> initializationOptions;
+
+  /// Configuration settings for the workspace.
+  /// These are sent to the server via workspace/didChangeConfiguration notifications.
+  final Map<String, dynamic> workspaceConfiguration;
+
   final StreamController<Map<String, dynamic>> _responseController =
       StreamController.broadcast();
   int _nextId = 1;
   final _openDocuments = <String, int>{};
-  List<String>? _serverTokenTypes;
-  List<String>? _serverTokenModifiers;
+  List<String>? _serverTokenTypes, _serverTokenModifiers;
+  final Map<String, dynamic> _initOptions = {};
 
   bool isInitialized = false;
 
@@ -57,9 +65,15 @@ sealed class LspConfig {
     required this.workspacePath,
     required this.languageId,
     this.capabilities = const LspClientCapabilities(),
+    this.initializationOptions = const {},
+    this.workspaceConfiguration = const {},
     this.disableWarning = false,
     this.disableError = false,
-  });
+  }) {
+    _initOptions.addAll({
+      "highlight": {'enabled': true},
+    });
+  }
 
   @override
   bool operator ==(Object other) {
@@ -76,15 +90,23 @@ sealed class LspConfig {
 
   void dispose();
 
-  Future<Map<String, dynamic>> _sendRequest({
+  /// Sends a request to the LSP server and waits for a response.
+  /// This is used for synchronous operations that require a reply from the server.
+  Future<Map<String, dynamic>> sendRequest({
     required String method,
     required Map<String, dynamic> params,
   });
 
-  Future<void> _sendNotification({
+  /// Sends a notification to the LSP server without waiting for a response.
+  /// This is used for asynchronous operations that inform the server of changes.
+  Future<void> sendNotification({
     required String method,
     required Map<String, dynamic> params,
   });
+
+  /// Sends a response to a request from the LSP server.
+  /// This is used to reply to server-initiated requests.
+  Future<Map<String, dynamic>> sendResponse(int id, List<dynamic> result);
 
   /// This method is used to initialize the LSP server.
   ///
@@ -92,7 +114,7 @@ sealed class LspConfig {
   /// It may crash the LSP server if called multiple times.
   Future<void> initialize() async {
     final workspaceUri = Uri.directory(workspacePath).toString();
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'initialize',
       params: {
         'processId': pid,
@@ -100,9 +122,7 @@ sealed class LspConfig {
         'workspaceFolders': [
           {'uri': workspaceUri, 'name': 'workspace'},
         ],
-        'initializationOptions': {
-          'highlight': {'enabled': true},
-        },
+        'initializationOptions': _initOptions,
         'capabilities': _buildCapabilities(),
       },
     );
@@ -124,11 +144,10 @@ sealed class LspConfig {
       }
     }
 
-    await _sendNotification(method: 'initialized', params: {});
+    await sendNotification(method: 'initialized', params: {});
     isInitialized = true;
   }
 
-  /// Builds the capabilities map based on enabled features.
   Map<String, dynamic> _buildCapabilities() {
     final textDocumentCapabilities = <String, dynamic>{};
 
@@ -203,7 +222,7 @@ sealed class LspConfig {
     };
 
     return {
-      'workspace': {'applyEdit': true},
+      'workspace': {'applyEdit': true, 'configuration': true},
       'textDocument': textDocumentCapabilities,
     };
   }
@@ -225,7 +244,7 @@ sealed class LspConfig {
     final version = (_openDocuments[filePath] ?? 0) + 1;
     _openDocuments[filePath] = version;
     final String text = await File(filePath).readAsString();
-    await _sendNotification(
+    await sendNotification(
       method: 'textDocument/didOpen',
       params: {
         'textDocument': {
@@ -251,7 +270,7 @@ sealed class LspConfig {
     final version = _openDocuments[filePath]! + 1;
     _openDocuments[filePath] = version;
 
-    await _sendNotification(
+    await sendNotification(
       method: 'textDocument/didChange',
       params: {
         'textDocument': {
@@ -269,7 +288,7 @@ sealed class LspConfig {
   ///
   /// Sends a 'didSave' notification to the LSP server with the current [content].
   Future<void> saveDocument(String filePath, String content) async {
-    await _sendNotification(
+    await sendNotification(
       method: 'textDocument/didSave',
       params: {
         'textDocument': {'uri': Uri.file(filePath).toString()},
@@ -284,7 +303,7 @@ sealed class LspConfig {
   Future<void> closeDocument(String filePath) async {
     if (!_openDocuments.containsKey(filePath)) return;
 
-    await _sendNotification(
+    await sendNotification(
       method: 'textDocument/didClose',
       params: {
         'textDocument': {'uri': Uri.file(filePath).toString()},
@@ -297,14 +316,14 @@ sealed class LspConfig {
   ///
   /// Sends a 'shutdown' request to the LSP server. This should be called before exiting the server.
   Future<void> shutdown() async {
-    await _sendRequest(method: 'shutdown', params: {});
+    await sendRequest(method: 'shutdown', params: {});
   }
 
   /// Exits the LSP server process.
   ///
   /// Sends an 'exit' notification to the LSP server. This should be called after shutdown.
   Future<void> exitServer() async {
-    await _sendNotification(method: 'exit', params: {});
+    await sendNotification(method: 'exit', params: {});
   }
 
   /// This method is used to get completions at a specific position in the document.
@@ -317,7 +336,7 @@ sealed class LspConfig {
   ) async {
     if (!capabilities.codeCompletion) return [];
     List<LspCompletion> completion = [];
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'textDocument/completion',
       params: _commonParams(filePath, line, character),
     );
@@ -366,7 +385,7 @@ sealed class LspConfig {
   /// If the LSP server does not support hover or the location provided is invalid, it will return an empty string.
   Future<String> getHover(String filePath, int line, int character) async {
     if (!capabilities.hoverInfo) return '';
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'textDocument/hover',
       params: _commonParams(filePath, line, character),
     );
@@ -403,7 +422,7 @@ sealed class LspConfig {
   Future<Map<String, dynamic>> resolveCompletionItem(
     Map<String, dynamic> item,
   ) async {
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'completionItem/resolve',
       params: item,
     );
@@ -452,7 +471,7 @@ sealed class LspConfig {
         'isRetrigger': isRetrigger,
       },
     });
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'textDocument/signatureHelp',
       params: commonParams,
     );
@@ -527,7 +546,7 @@ sealed class LspConfig {
     int character,
   ) async {
     if (!capabilities.documentHighlight) return [];
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'textDocument/documentHighlight',
       params: _commonParams(filePath, line, character),
     );
@@ -556,7 +575,7 @@ sealed class LspConfig {
     /// in the document. Returns the raw server response as a map; callers
     /// should inspect `response['result']` according to the server's
     /// specification for color presentations.
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: "textDocument/colorPresentation",
       params: {
         'textDocument': {'uri': Uri.file(filePath).toString()},
@@ -576,7 +595,7 @@ sealed class LspConfig {
   /// to obtain the list of color entries.
   Future<Map<String, dynamic>> getDocumentColor(String filePath) async {
     if (!capabilities.documentColor) return {'result': []};
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: "textDocument/documentColor",
       params: {
         'textDocument': {'uri': Uri.file(filePath).toString()},
@@ -593,7 +612,7 @@ sealed class LspConfig {
   /// map; examine `response['result']` for the folding range list.
   Future<Map<String, dynamic>> getLSPFoldRanges(String filePath) async {
     if (!capabilities.codeFolding) return {'result': []};
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: "textDocument/foldingRange",
       params: {
         'textDocument': {'uri': Uri.file(filePath).toString()},
@@ -618,7 +637,7 @@ sealed class LspConfig {
     int endCharacter,
   ) async {
     if (!capabilities.inlayHint) return {'result': []};
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: "textDocument/inlayHint",
       params: {
         'textDocument': {'uri': Uri.file(filePath).toString()},
@@ -640,7 +659,7 @@ sealed class LspConfig {
     int character,
   ) async {
     if (!capabilities.goToDefinition) return {};
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'textDocument/definition',
       params: _commonParams(filePath, line, character),
     );
@@ -656,7 +675,7 @@ sealed class LspConfig {
     int line,
     int character,
   ) async {
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'textDocument/declaration',
       params: _commonParams(filePath, line, character),
     );
@@ -672,7 +691,7 @@ sealed class LspConfig {
     int line,
     int character,
   ) async {
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'textDocument/typeDefinition',
       params: _commonParams(filePath, line, character),
     );
@@ -689,7 +708,7 @@ sealed class LspConfig {
     int line,
     int character,
   ) async {
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'textDocument/implementation',
       params: _commonParams(filePath, line, character),
     );
@@ -704,7 +723,7 @@ sealed class LspConfig {
   /// This is used for outline views, breadcrumbs, and file structure panels.
   /// Returns either a hierarchical or flat symbol list depending on server support.
   Future<List<dynamic>> getDocumentSymbols(String filePath) async {
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'textDocument/documentSymbol',
       params: {
         'textDocument': {'uri': Uri.file(filePath).toString()},
@@ -720,7 +739,7 @@ sealed class LspConfig {
   ///
   /// Used for global symbol search (e.g., Ctrl+T).
   Future<List<dynamic>> getWorkspaceSymbols(String query) async {
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'workspace/symbol',
       params: {'query': query},
     );
@@ -734,7 +753,7 @@ sealed class LspConfig {
   ///
   /// Returns a list of text edits to apply to the document.
   Future<List<dynamic>> formatDocument(String filePath) async {
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'textDocument/formatting',
       params: {
         'textDocument': {'uri': Uri.file(filePath).toString()},
@@ -757,7 +776,7 @@ sealed class LspConfig {
     required int endLine,
     required int endCharacter,
   }) async {
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'textDocument/rangeFormatting',
       params: {
         'textDocument': {'uri': Uri.file(filePath).toString()},
@@ -784,7 +803,7 @@ sealed class LspConfig {
     String newName,
   ) async {
     if (!capabilities.rename) return {};
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'textDocument/rename',
       params: {..._commonParams(filePath, line, character), 'newName': newName},
     );
@@ -801,7 +820,7 @@ sealed class LspConfig {
     int character,
   ) async {
     if (!capabilities.rename) return null;
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'textDocument/prepareRename',
       params: _commonParams(filePath, line, character),
     );
@@ -821,7 +840,7 @@ sealed class LspConfig {
     List<Map<String, dynamic>> diagnostics = const [],
   }) async {
     if (!capabilities.codeAction) return [];
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'textDocument/codeAction',
       params: {
         'textDocument': {'uri': Uri.file(filePath).toString()},
@@ -850,7 +869,7 @@ sealed class LspConfig {
   /// Execute a workspace command on the server
   /// Wrapper around the 'workspace/executeCommand' request.
   Future<void> executeCommand(String command, List<dynamic>? arguments) async {
-    await _sendRequest(
+    await sendRequest(
       method: 'workspace/executeCommand',
       params: {'command': command, 'arguments': arguments ?? []},
     );
@@ -860,7 +879,7 @@ sealed class LspConfig {
   ///
   /// These links can be clicked to open files or external resources.
   Future<List<dynamic>> getDocumentLinks(String filePath) async {
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'textDocument/documentLink',
       params: {
         'textDocument': {'uri': Uri.file(filePath).toString()},
@@ -880,7 +899,7 @@ sealed class LspConfig {
     int line,
     int character,
   ) async {
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'textDocument/prepareCallHierarchy',
       params: _commonParams(filePath, line, character),
     );
@@ -892,7 +911,7 @@ sealed class LspConfig {
 
   /// Retrieves incoming calls for a call hierarchy item.
   Future<List<dynamic>> getIncomingCalls(Map<String, dynamic> item) async {
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'callHierarchy/incomingCalls',
       params: {'item': item},
     );
@@ -904,7 +923,7 @@ sealed class LspConfig {
 
   /// Retrieves outgoing calls for a call hierarchy item.
   Future<List<dynamic>> getOutgoingCalls(Map<String, dynamic> item) async {
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'callHierarchy/outgoingCalls',
       params: {'item': item},
     );
@@ -920,7 +939,7 @@ sealed class LspConfig {
     int line,
     int character,
   ) async {
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'textDocument/prepareTypeHierarchy',
       params: _commonParams(filePath, line, character),
     );
@@ -932,7 +951,7 @@ sealed class LspConfig {
 
   /// Retrieves supertypes (base classes / interfaces).
   Future<List<dynamic>> getSupertypes(Map<String, dynamic> item) async {
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'typeHierarchy/supertypes',
       params: {'item': item},
     );
@@ -944,7 +963,7 @@ sealed class LspConfig {
 
   /// Retrieves subtypes (derived classes / implementations).
   Future<List<dynamic>> getSubtypes(Map<String, dynamic> item) async {
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'typeHierarchy/subtypes',
       params: {'item': item},
     );
@@ -964,7 +983,7 @@ sealed class LspConfig {
   ) async {
     final params = _commonParams(filePath, line, character);
     params['context'] = {'includeDeclaration': true};
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'textDocument/references',
       params: params,
     );
@@ -977,7 +996,7 @@ sealed class LspConfig {
   /// Returns a list of [LspSemanticToken] objects representing syntax tokens for highlighting.
   Future<List<LspSemanticToken>> getSemanticTokensFull(String filePath) async {
     if (!capabilities.semanticHighlighting) return [];
-    final response = await _sendRequest(
+    final response = await sendRequest(
       method: 'textDocument/semanticTokens/full',
       params: {
         'textDocument': {'uri': Uri.file(filePath).toString()},
