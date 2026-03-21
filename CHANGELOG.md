@@ -359,3 +359,7 @@ This release establishes **CodeForge** as a powerful, production-ready code edit
 ## 9.2.0
   - FEATURE: [#51](https://github.com/heckmon/code_forge/issues/51)
   - FIX: [#53](https://github.com/heckmon/code_forge/issues/53)
+
+## 9.3.0
+  - FIX: [#54](https://github.com/heckmon/code_forge/issues/54)
+  - FEATURE: Multiple highlight grammars for a single editor instance.

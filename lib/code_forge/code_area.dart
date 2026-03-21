@@ -3,8 +3,6 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart';
-
 import '../LSP/lsp.dart';
 import 'controller.dart';
 import 'find_controller.dart';
@@ -17,6 +15,7 @@ import 'package:re_highlight/re_highlight.dart';
 import 'package:re_highlight/styles/vs2015.dart';
 import 'package:re_highlight/languages/dart.dart';
 import 'package:markdown_widget/markdown_widget.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -79,6 +78,12 @@ class CodeForge extends StatefulWidget {
   /// Determines which language syntax rules to apply. Uses Python mode
   /// by default if not specified.
   final Mode? language;
+
+  /// Additional language modes registered in the same highlighter instance.
+  ///
+  /// Useful for languages that embed other grammars (for example, TSX using
+  /// XML/HTML sub-languages).
+  final List<Mode> extraLanguages;
 
   /// The focus node for managing keyboard focus.
   ///
@@ -233,6 +238,7 @@ class CodeForge extends StatefulWidget {
     this.undoController,
     this.editorTheme,
     this.language,
+    this.extraLanguages = const [],
     this.ghostTextStyle,
     this.filePath,
     this.initialText,
@@ -2211,6 +2217,8 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                                 controller: _controller,
                                                 editorTheme: _editorTheme,
                                                 language: _language,
+                                                extraLanguages:
+                                                    widget.extraLanguages,
                                                 languageId: _controller
                                                     .lspConfig
                                                     ?.languageId,
@@ -3671,6 +3679,7 @@ class _CodeField extends LeafRenderObjectWidget {
   final CodeForgeController controller;
   final Map<String, TextStyle> editorTheme;
   final Mode language;
+  final List<Mode> extraLanguages;
   final String? languageId;
   final LspConfig? lspConfig;
   final List<LspSemanticToken>? semanticTokens;
@@ -3705,6 +3714,7 @@ class _CodeField extends LeafRenderObjectWidget {
     required this.controller,
     required this.editorTheme,
     required this.language,
+    required this.extraLanguages,
     required this.vscrollController,
     required this.hscrollController,
     required this.focusNode,
@@ -3753,6 +3763,7 @@ class _CodeField extends LeafRenderObjectWidget {
       controller: controller,
       editorTheme: editorTheme,
       language: language,
+      extraLanguages: extraLanguages,
       languageId: languageId,
       lspConfig: lspConfig,
       innerPadding: innerPadding,
@@ -3809,6 +3820,7 @@ class _CodeField extends LeafRenderObjectWidget {
       ..updateDiagnostics(diagnostics)
       ..editorTheme = editorTheme
       ..language = language
+      ..extraLanguages = extraLanguages
       ..textStyle = textStyle
       ..innerPadding = innerPadding
       ..readOnly = readOnly
@@ -3881,6 +3893,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   TextStyle? _ghostTextStyle;
   Map<String, TextStyle> _editorTheme;
   Mode _language;
+  List<Mode> _extraLanguages;
   EdgeInsets? _innerPadding;
   double _rightPaddingWidth = 0, _bottomPaddingHeight = 0;
   TextStyle? _textStyle;
@@ -4188,6 +4201,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     required bool lineWrap,
     required Map<String, TextStyle> editorTheme,
     required Mode language,
+    required List<Mode> extraLanguages,
     required bool readOnly,
     required bool enableFolding,
     required bool enableGuideLines,
@@ -4208,6 +4222,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   }) : _editorTheme = editorTheme,
        _ghostTextStyle = ghostTextStyle,
        _language = language,
+       _extraLanguages = extraLanguages,
        _readOnly = readOnly,
        _enableFolding = enableFolding,
        _enableGuideLines = enableGuideLines,
@@ -4231,6 +4246,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
     _syntaxHighlighter = SyntaxHighlighter(
       language: _language,
+      extraLanguages: _extraLanguages,
       editorTheme: _editorTheme,
       baseTextStyle: _textStyle,
       languageId: languageId,
@@ -4464,8 +4480,10 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     }
     _syntaxHighlighter = SyntaxHighlighter(
       language: language,
+      extraLanguages: _extraLanguages,
       editorTheme: theme,
       baseTextStyle: textStyle,
+      languageId: languageId,
     );
     _paragraphCache.clear();
     _bracketCache.clear();
@@ -4481,8 +4499,10 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     } catch (_) {}
     _syntaxHighlighter = SyntaxHighlighter(
       language: lang,
+      extraLanguages: _extraLanguages,
       editorTheme: editorTheme,
       baseTextStyle: textStyle,
+      languageId: languageId,
     );
     _paragraphCache.clear();
     _bracketCache.clear();
@@ -4504,8 +4524,10 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     } catch (_) {}
     _syntaxHighlighter = SyntaxHighlighter(
       language: language,
+      extraLanguages: _extraLanguages,
       editorTheme: editorTheme,
       baseTextStyle: style,
+      languageId: languageId,
     );
 
     _paragraphCache.clear();
@@ -4530,6 +4552,25 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     _innerPadding = padding;
     _rightPaddingWidth = padding?.right ?? 0;
     _bottomPaddingHeight = padding?.bottom ?? 0;
+    markNeedsLayout();
+    markNeedsPaint();
+  }
+
+  set extraLanguages(List<Mode> value) {
+    if (listEquals(value, _extraLanguages)) return;
+    _extraLanguages = value;
+    try {
+      _syntaxHighlighter.dispose();
+    } catch (_) {}
+    _syntaxHighlighter = SyntaxHighlighter(
+      language: language,
+      extraLanguages: _extraLanguages,
+      editorTheme: editorTheme,
+      baseTextStyle: textStyle,
+      languageId: languageId,
+    );
+    _paragraphCache.clear();
+    _bracketCache.clear();
     markNeedsLayout();
     markNeedsPaint();
   }
@@ -4852,6 +4893,13 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
     final newText = controller.text;
     final previousText = _lastProcessedText ?? newText;
+    final textChanged = newText != previousText;
+
+    if (textChanged) {
+      _indentGuideCache.clear();
+      _indentEndLineCache.clear();
+      _lineIndentCache.clear();
+    }
 
     final dirtyRange = controller.dirtyRegion;
     if (dirtyRange != null) {
@@ -5483,7 +5531,9 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
   String? _extractOpeningTagName(String lineText) {
     final trimmed = lineText.trimRight();
-    final openTagMatch = RegExp(r'<(\w+)(?:\s[^>]*)?>$').firstMatch(trimmed);
+    final openTagMatch = RegExp(
+      r'<([A-Za-z][A-Za-z0-9:_-]*)(?:\s[^>]*)?>$',
+    ).firstMatch(trimmed);
     if (openTagMatch != null) {
       final tagName = openTagMatch.group(1);
       if (!trimmed.endsWith('/>') && !trimmed.endsWith('-->')) {
@@ -7482,6 +7532,12 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     void processLine(int i) {
       if (hasActiveFolds && _isLineFolded(i)) return;
 
+      final cachedBlocks = _indentGuideCache[i];
+      if (cachedBlocks != null) {
+        blocks.addAll(cachedBlocks);
+        return;
+      }
+
       String lineText;
       if (_lineTextCache.containsKey(i)) {
         lineText = _lineTextCache[i]!;
@@ -7498,15 +7554,21 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
           trimmed.endsWith(':');
 
       final openingTagName = _extractOpeningTagName(lineText);
+      final normalizedLangId = languageId?.toLowerCase() ?? '';
       final isTagBasedLanguage =
           _language.name == 'html' ||
           _language.name == 'xml' ||
           (_language.aliases?.contains('html') ?? false) ||
           (_language.aliases?.contains('xml') ?? false) ||
+          (_language.aliases?.contains('tsx') ?? false) ||
+          (_language.aliases?.contains('jsx') ?? false) ||
           (languageId?.contains('html') ?? false) ||
-          (languageId?.contains('xml') ?? false);
+          (languageId?.contains('xml') ?? false) ||
+          normalizedLangId.contains('tsx') ||
+          normalizedLangId.contains('jsx');
 
       if (!endsWithBracket && (!isTagBasedLanguage || openingTagName == null)) {
+        _indentGuideCache[i] = const [];
         return;
       }
 
@@ -7531,19 +7593,25 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
           endLine = _findIndentBasedEndLine(i, leadingSpaces, hasActiveFolds);
         }
       } else if (openingTagName != null && isTagBasedLanguage) {
-        final matchLine = _findMatchingClosingTagLine(openingTagName, i);
-        if (matchLine != null) {
-          endLine = matchLine + 1;
+        final lspFold = controller.lspFoldRanges?[i];
+        if (lspFold != null && lspFold.endIndex > i) {
+          endLine = lspFold.endIndex + 1;
         } else {
-          endLine = _findIndentBasedEndLine(i, leadingSpaces, hasActiveFolds);
+          final matchLine = _findMatchingClosingTagLine(openingTagName, i);
+          if (matchLine != null) {
+            endLine = matchLine + 1;
+          } else {
+            endLine = _findIndentBasedEndLine(i, leadingSpaces, hasActiveFolds);
+          }
         }
       } else {
         endLine = _findIndentBasedEndLine(i, leadingSpaces, hasActiveFolds);
       }
 
-      if (endLine <= i + 1) return;
-
-      if (endLine < firstVisibleLine) return;
+      if (endLine <= i + 1) {
+        _indentGuideCache[i] = const [];
+        return;
+      }
 
       double guideX = 0;
       if (leadingSpaces > 0) {
@@ -7585,14 +7653,22 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         }
       }
 
-      if (wouldPassThroughText) return;
+      if (wouldPassThroughText) {
+        _indentGuideCache[i] = const [];
+        return;
+      }
 
-      blocks.add((
+      final block = (
         startLine: i,
         endLine: endLine,
         indentLevel: indentLevel,
         guideX: guideX,
-      ));
+      );
+
+      _indentGuideCache[i] = [block];
+      if (endLine >= firstVisibleLine) {
+        blocks.add(block);
+      }
     }
 
     final scanBackLimit = 500;

@@ -38,9 +38,9 @@
 > code_forge does **not** support Flutter web, as it relies on `dart:io` for core functionality. Use [code_forge_web](https://pub.dev/packages/code_forge_web) for web support.
 
 
-### What's new in 9.2.0
-  - FEATURE: [#51](https://github.com/heckmon/code_forge/issues/51)
-  - FIX: [#53](https://github.com/heckmon/code_forge/issues/53)
+### What's new in 9.3.0
+  - FIX: [#54](https://github.com/heckmon/code_forge/issues/54)
+  - FEATURE: Multiple highlight grammars for a single editor instance.
 
 ## Why CodeForge?
 **Feature demos:** [CodeForge Features Showcase](https://heckmon.github.io/code_forge_demo/)
@@ -115,7 +115,7 @@ Add CodeForge to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  code_forge: ^9.1.0
+  code_forge: ^9.3.0
 ```
 
 Then run:
@@ -467,6 +467,7 @@ CodeForge(
 | `enableGutterDivider` | `bool` | Show gutter divider |
 | `enableSuggestions` | `bool` | Enable autocomplete suggestions |
 | `enableKeyboardSuggestions` | `bool` | Show auto completions in OS virtual keyboard |
+| `extraLanguages` | `List<Mode>` | Useful for languages that embed other grammars (for example, TSX using XML/HTML sub-languages). |
 | `keyboardType` | `TextInputType` | Type of virtual keyboard |
 | `customCodeSnippets` | `List<CustomCodeSnippet>?` | Custom code snippets shown in the suggestion popup |
 | `deleteFoldRangeOnDeletingFirstLine` | `bool` | When true, deleting the first line of a folded block removes the entire block |
@@ -743,15 +744,6 @@ This project is licensed under the MIT License - see the [LICENSE](https://githu
 
 ---
 
-## In Memory
-This project is dedicated to my friend [@laraholand](https://github.com/laraholand) (Rafi Ahmed).
-
-For a month he opened issues, shared ideas, and helped improve this project almost every day.<br>
-His encouragement and enthusiasm meant a lot to me and this project.
-<br><br>
-Thank you for everything. Rest in peace brother🌹.
-<br>
-<br>
 <p align="center">
   <strong>Built with ❤️ for the Flutter community</strong>
 </p>
