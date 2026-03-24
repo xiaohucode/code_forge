@@ -372,7 +372,6 @@ class SyntaxHighlighter {
     final rootStyle = baseTextStyle ?? _resolvedTheme['root'];
     final rootColor = rootStyle?.color;
 
-    // Preserve grammar styling when it clearly differs from root text style.
     if (style.color != null && rootColor != null && style.color != rootColor) {
       return true;
     }
@@ -683,8 +682,6 @@ class SyntaxHighlighter {
   Map<String, TextStyle> _buildResolvedTheme(Map<String, TextStyle> theme) {
     final resolved = Map<String, TextStyle>.from(theme);
 
-    // XML/HTML grammars commonly emit `tag`; many highlight themes only define
-    // `selector-tag` or `name`.
     if (!resolved.containsKey('tag')) {
       final fallbackTagStyle = resolved['selector-tag'] ?? resolved['name'];
       if (fallbackTagStyle != null) {
@@ -761,8 +758,6 @@ void _registerLanguageWithAliases(Highlight highlight, Mode language) {
   final normalizedName = language.name!.toLowerCase().trim();
   highlight.registerLanguage(normalizedName, language);
 
-  // Some grammars expose composite names like "HTML, XML" but subLanguage
-  // lookups request a single token (for example, "xml").
   for (final token in normalizedName.split(RegExp(r'[^a-z0-9_+#-]+'))) {
     if (token.isNotEmpty) {
       highlight.registerLanguage(token, language);

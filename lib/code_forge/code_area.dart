@@ -3983,7 +3983,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     _hasActiveFoldsCache = false;
 
     final lineCount = controller.lineCount;
-    // Build sorted list directly from fold ranges instead of per-line Set
     final sortedLines = <int>[];
     for (final fold in _foldRanges.values) {
       if (fold != null && fold.isFolded) {
@@ -6248,19 +6247,26 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
           visibleHeight += _getWrappedLineHeight(i);
         }
       } else {
-        double cachedHeight = 0;
-        int cachedCount = 0;
-        for (final entry in _lineHeightCache.entries) {
-          if (entry.key < lineCount) {
-            cachedHeight += entry.value;
-            cachedCount++;
+        const int exactWrapHeightThreshold = 512;
+        if (lineCount <= exactWrapHeightThreshold) {
+          for (int i = 0; i < lineCount; i++) {
+            visibleHeight += _getWrappedLineHeight(i);
           }
+        } else {
+          double cachedHeight = 0;
+          int cachedCount = 0;
+          for (final entry in _lineHeightCache.entries) {
+            if (entry.key < lineCount) {
+              cachedHeight += entry.value;
+              cachedCount++;
+            }
+          }
+          final uncachedCount = lineCount - cachedCount;
+          final avgHeight = cachedCount > 0
+              ? cachedHeight / cachedCount
+              : _lineHeight;
+          visibleHeight = cachedHeight + (uncachedCount * avgHeight);
         }
-        final uncachedCount = lineCount - cachedCount;
-        final avgHeight = cachedCount > 0
-            ? cachedHeight / cachedCount
-            : _lineHeight;
-        visibleHeight = cachedHeight + (uncachedCount * avgHeight);
       }
     } else {
       _wrapWidth = double.infinity;
@@ -7224,38 +7230,10 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     final errorColor = gutterStyle.errorLineNumberColor;
     final warningColor = gutterStyle.warningLineNumberColor;
 
-    int firstVisibleLine;
-    double firstVisibleLineY;
-
-    if (!lineWrap && !hasActiveFolds && _virtualRemovedTotalLineCount == 0) {
-      firstVisibleLine = (viewTop / _lineHeight).floor().clamp(
-        0,
-        lineCount - 1,
-      );
-      firstVisibleLineY = firstVisibleLine * _lineHeight;
-    } else {
-      double currentY = 0;
-      firstVisibleLine = 0;
-      firstVisibleLineY = 0;
-      final blocks = controller.virtualRemovedBlocks;
-      int blockIdx = 0;
-
-      for (int i = 0; i < lineCount; i++) {
-        if (hasActiveFolds && _isLineFolded(i)) continue;
-        while (blockIdx < blocks.length &&
-            blocks[blockIdx].afterLine == i - 1) {
-          currentY += blocks[blockIdx].lineCount * _lineHeight;
-          blockIdx++;
-        }
-        final lineHeight = lineWrap ? _getWrappedLineHeight(i) : _lineHeight;
-        if (currentY + lineHeight > viewTop) {
-          firstVisibleLine = i;
-          firstVisibleLineY = currentY;
-          break;
-        }
-        currentY += lineHeight;
-      }
-    }
+    final firstVisibleLine = _findVisibleLineByYPosition(
+      viewTop,
+    ).clamp(0, lineCount - 1);
+    final firstVisibleLineY = _getLineYOffset(firstVisibleLine, hasActiveFolds);
 
     _actionBulbRects.clear();
 
@@ -8280,6 +8258,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       }
 
       final lineY = _getLineYOffset(lineIndex, hasActiveFolds);
+      final visualYOffset = _getTotalVirtualOffset(lineIndex);
 
       final colorBoxOffsetStart = _getColorBoxOffsetForLine(
         lineIndex,
@@ -8311,6 +8290,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
               offset.dy +
               (innerPadding?.top ?? 0) +
               lineY +
+              visualYOffset +
               box.top -
               vscrollController.offset;
 
@@ -8332,6 +8312,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
             offset.dy +
             (innerPadding?.top ?? 0) +
             lineY -
+            visualYOffset -
             vscrollController.offset;
 
         canvas.drawRect(
@@ -8479,6 +8460,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     final startCol = start - startLineOffset;
 
     final startY = _getLineYOffset(startLine, hasActiveFolds);
+    final startVisualYOffset = _getTotalVirtualOffset(startLine);
 
     double startX;
     double startYInLine = 0;
@@ -8511,6 +8493,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         offset.dy +
         (innerPadding?.top ?? 0) +
         startY +
+        startVisualYOffset +
         startYInLine -
         vscrollController.offset;
 
@@ -8531,6 +8514,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     final endCol = end - endLineOffset;
 
     final endY = _getLineYOffset(endLine, hasActiveFolds);
+    final endVisualYOffset = _getTotalVirtualOffset(endLine);
 
     double endX;
     double endYInLine = 0;
@@ -8563,6 +8547,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         offset.dy +
         (innerPadding?.top ?? 0) +
         endY +
+        endVisualYOffset +
         endYInLine -
         vscrollController.offset;
 

@@ -38,9 +38,10 @@
 > code_forge does **not** support Flutter web, as it relies on `dart:io` for core functionality. Use [code_forge_web](https://pub.dev/packages/code_forge_web) for web support.
 
 
-### What's new in 9.3.0
-  - FIX: [#54](https://github.com/heckmon/code_forge/issues/54)
-  - FEATURE: Multiple highlight grammars for a single editor instance.
+### What's new in 9.4.0
+  - FIX: [#57](https://github.com/heckmon/code_forge/issues/57)
+  - FIX: [#58](https://github.com/heckmon/code_forge/issues/58)
+  - FIX: Anchored gutter for `controller.setGitDiffDecorations`
 
 ## Why CodeForge?
 **Feature demos:** [CodeForge Features Showcase](https://heckmon.github.io/code_forge_demo/)
@@ -115,7 +116,7 @@ Add CodeForge to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  code_forge: ^9.3.0
+  code_forge: ^9.4.0
 ```
 
 Then run:
