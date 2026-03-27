@@ -368,3 +368,8 @@ This release establishes **CodeForge** as a powerful, production-ready code edit
   - FIX: [#57](https://github.com/heckmon/code_forge/issues/57)
   - FIX: [#58](https://github.com/heckmon/code_forge/issues/58)
   - FIX: Anchored gutter for `controller.setGitDiffDecorations`
+
+## 9.5.0
+  - FIX: [#57](https://github.com/heckmon/code_forge/issues/57)
+  - FIX: [#58](https://github.com/heckmon/code_forge/issues/58)
+  

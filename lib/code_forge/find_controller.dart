@@ -291,11 +291,19 @@ class FindController extends ChangeNotifier {
   void _scrollToCurrentMatch() {
     if (_currentMatchIndex >= 0 && _currentMatchIndex < _matches.length) {
       final match = _matches[_currentMatchIndex];
+      final matchLine = _codeController.getLineAtOffset(match.start);
       _codeController.setSelectionSilently(
         TextSelection(baseOffset: match.start, extentOffset: match.end),
       );
       _codeController.selectionOnly = true;
       _codeController.notifyListeners();
+
+      // Ensure find navigation keeps the active result centered in view.
+      try {
+        _codeController.scrollToLine(matchLine);
+      } on StateError {
+        // Ignore when editor is not attached yet.
+      }
 
       // removes selection
       _codeController.setSelectionSilently(TextSelection.collapsed(offset: 0));

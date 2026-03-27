@@ -3918,6 +3918,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   bool _draggingStartHandle = false, _draggingEndHandle = false;
   bool _showBubble = false, _draggingCHandle = false, _readOnly;
   bool _isDeferringLayout = false, _hasCachedHeight = false;
+  bool _isCachedHeightExact = false;
   TextDirection _textDirection;
   Map<int, FoldRange>? _lastLspFoldRanges;
   Rect? _startHandleRect, _endHandleRect, _normalHandle;
@@ -4708,6 +4709,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     if (_hasCachedHeight) {
       final lineDelta = _cachedLineCount - _previousLineCount;
       _cachedTotalHeight += lineDelta * _lineHeight;
+      _isCachedHeightExact = false;
     }
     _previousLineCount = _cachedLineCount;
 
@@ -6247,25 +6249,18 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
           visibleHeight += _getWrappedLineHeight(i);
         }
       } else {
-        const int exactWrapHeightThreshold = 512;
-        if (lineCount <= exactWrapHeightThreshold) {
+        final canReuseExactWrappedHeight =
+            _hasCachedHeight &&
+            _isCachedHeightExact &&
+            _previousLineCount == lineCount &&
+            _lineHeightCache.length >= lineCount;
+
+        if (canReuseExactWrappedHeight) {
+          visibleHeight = _cachedTotalHeight;
+        } else {
           for (int i = 0; i < lineCount; i++) {
             visibleHeight += _getWrappedLineHeight(i);
           }
-        } else {
-          double cachedHeight = 0;
-          int cachedCount = 0;
-          for (final entry in _lineHeightCache.entries) {
-            if (entry.key < lineCount) {
-              cachedHeight += entry.value;
-              cachedCount++;
-            }
-          }
-          final uncachedCount = lineCount - cachedCount;
-          final avgHeight = cachedCount > 0
-              ? cachedHeight / cachedCount
-              : _lineHeight;
-          visibleHeight = cachedHeight + (uncachedCount * avgHeight);
         }
       }
     } else {
@@ -6312,6 +6307,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     _longLineWidth = maxLineWidth;
     _cachedTotalHeight = visibleHeight;
     _hasCachedHeight = true;
+    _isCachedHeightExact = true;
     _previousLineCount = lineCount;
 
     final contentHeight =
