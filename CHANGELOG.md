@@ -373,3 +373,6 @@ This release establishes **CodeForge** as a powerful, production-ready code edit
   - FIX: [#57](https://github.com/heckmon/code_forge/issues/57)
   - FIX: [#58](https://github.com/heckmon/code_forge/issues/58)
   
+## 9.6.0
+  - FIX: [#60](https://github.com/heckmon/code_forge/issues/60)
+  - FEATURE: Empty `Mode` as default highlight grammar instead of dart grammar as requested in [#59](https://github.com/heckmon/code_forge/discussions/59)

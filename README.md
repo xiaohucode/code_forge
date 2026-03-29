@@ -38,9 +38,9 @@
 > code_forge does **not** support Flutter web, as it relies on `dart:io` for core functionality. Use [code_forge_web](https://pub.dev/packages/code_forge_web) for web support.
 
 
-### What's new in 9.5.0
-  - FIX: [#57](https://github.com/heckmon/code_forge/issues/57)
-  - FIX: [#58](https://github.com/heckmon/code_forge/issues/58)
+### What's new in 9.6.0
+  - FIX: [#60](https://github.com/heckmon/code_forge/issues/60)
+  - FEATURE: Empty `Mode` as default highlight grammar instead of dart grammar as requested in [#59](https://github.com/heckmon/code_forge/discussions/59)
 
 ## Why CodeForge?
 **Feature demos:** [CodeForge Features Showcase](https://heckmon.github.io/code_forge_demo/)
@@ -115,7 +115,7 @@ Add CodeForge to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  code_forge: ^9.5.0
+  code_forge: ^9.6.0
 ```
 
 Then run:
