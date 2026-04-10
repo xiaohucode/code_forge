@@ -33,16 +33,24 @@
   <img src="https://raw.githubusercontent.com/heckmon/code_forge/refs/heads/main/gifs/code_forge_100k.gif" alt="CodeForge Demo" width="800"/><sub><br>large code support (tested with 100k+ lines) and LSP based intelligent lazy highlighting</sub>
 </p>
 
+### Feature demos: [CodeForge Features Showcase](https://heckmon.github.io/code_forge_demo/)
+
 > [!NOTE]
 >
 > code_forge does **not** support Flutter web, as it relies on `dart:io` for core functionality. Use [code_forge_web](https://pub.dev/packages/code_forge_web) for web support.
 
 
-### What's new in 9.7.0
-  - Enhanced large text handling.
+## Upcoming feature (v10.0.0):
+**Currently I'm working on the migration of code_forge backend from dart to rust, while keeping the front end flutter APIs untouched.
+This will make the code_forge lightning fast like the [zed editor](https://zed.dev/).**
+
+
+### What's new in 9.8.0
+  - FIX: LSP initialization bug.
+
+
 
 ## Why CodeForge?
-**Feature demos:** [CodeForge Features Showcase](https://heckmon.github.io/code_forge_demo/)
 
 **CodeForge** is a next-generation code editor widget designed for developers who demand more. Whether you're building an IDE, a code snippet viewer, or an educational coding platform, CodeForge delivers:
 
@@ -114,7 +122,7 @@ Add CodeForge to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  code_forge: ^9.6.0
+  code_forge: ^9.8.0
 ```
 
 Then run:

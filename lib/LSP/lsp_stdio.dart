@@ -118,6 +118,7 @@ class LspStdioConfig extends LspConfig {
       executable,
       args ?? [],
       environment: environment,
+      workingDirectory: workspacePath,
     );
     _process.stdout.listen(_handleStdoutData);
     _process.stderr.listen((data) => debugPrint(utf8.decode(data)));
@@ -154,12 +155,11 @@ class LspStdioConfig extends LspConfig {
   }
 
   int _findHeaderEnd() {
-    final endSequence = [13, 10, 13, 10];
-    for (var i = 0; i <= _buffer.length - endSequence.length; i++) {
-      if (List.generate(
-        endSequence.length,
-        (j) => _buffer[i + j],
-      ).every((byte) => endSequence.contains(byte))) {
+    for (var i = 0; i <= _buffer.length - 4; i++) {
+      if (_buffer[i] == 13 &&
+          _buffer[i + 1] == 10 &&
+          _buffer[i + 2] == 13 &&
+          _buffer[i + 3] == 10) {
         return i;
       }
     }
@@ -205,11 +205,7 @@ class LspStdioConfig extends LspConfig {
   ) async {
     final request = {'jsonrpc': '2.0', 'id': id, 'result': result};
     await _sendLspMessage(request);
-
-    return await _responseController.stream.firstWhere(
-      (response) => response['id'] == id,
-      orElse: () => throw TimeoutException('No response for request $id'),
-    );
+    return request;
   }
 
   Future<void> _sendLspMessage(Map<String, dynamic> message) async {

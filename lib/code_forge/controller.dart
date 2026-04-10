@@ -87,12 +87,9 @@ class CodeForgeController implements DeltaTextInputClient {
           if (!lspConfig!.isInitialized) {
             await lspConfig!.initialize();
           }
-          await Future.delayed(const Duration(milliseconds: 300));
-          await lspConfig!.openDocument(openedFile!);
-          _lspReady = true;
-          await _fetchSemanticTokensFull();
-          await fetchDocumentColors();
-          await fetchLSPFoldRanges();
+          if (openedFile != null) {
+            await _openDocumentInLsp();
+          }
         } catch (e) {
           debugPrint('Error initializing LSP: $e');
         } finally {
@@ -260,6 +257,25 @@ class CodeForgeController implements DeltaTextInputClient {
     }
   }
 
+  Future<void> _openDocumentInLsp({String? previousFile}) async {
+    if (lspConfig == null || !lspConfig!.isInitialized || openedFile == null) {
+      return;
+    }
+
+    try {
+      if (previousFile != null && previousFile != openedFile) {
+        await lspConfig!.closeDocument(previousFile);
+      }
+      await lspConfig!.openDocument(openedFile!);
+      _lspReady = true;
+      await _fetchSemanticTokensFull();
+      await fetchDocumentColors();
+      await fetchLSPFoldRanges();
+    } catch (e) {
+      debugPrint('Error opening LSP document: $e');
+    }
+  }
+
   Future<void> _highlightListener() async {
     if (text != _previousValue && _lspReady) {
       final currentText = text;
@@ -364,9 +380,19 @@ class CodeForgeController implements DeltaTextInputClient {
 
   /// Open a file using the controller API instead of passing `filePath` parameter to [CodeForge]
   set openedFile(String? file) {
+    final previousFile = _openedFile;
     _openedFile = file;
     if (openedFile != null) {
       text = File(_openedFile!).readAsStringSync();
+    }
+
+    if (previousFile != openedFile &&
+        lspConfig != null &&
+        lspConfig!.isInitialized &&
+        openedFile != null) {
+      (() async {
+        await _openDocumentInLsp(previousFile: previousFile);
+      })();
     }
   }
 
