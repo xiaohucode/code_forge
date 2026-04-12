@@ -45,8 +45,9 @@
 This will make the code_forge lightning fast like the [zed editor](https://zed.dev/).**
 
 
-### What's new in 9.8.0
-  - FIX: LSP initialization bug.
+### What's new in 9.9.0
+  - FIX: Cursor jump on typing.
+  - FIX: Frozen horizontal scroll on dynamic font size.
 
 
 
@@ -122,7 +123,7 @@ Add CodeForge to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  code_forge: ^9.8.0
+  code_forge: ^9.9.0
 ```
 
 Then run:
@@ -733,15 +734,9 @@ CodeForge supports a variety of keyboard shortcuts for efficient editing:
 
 ---
 
-## Contributing
+## Used by
 
-Contributions are welcome! Whether it's bug fixes, new features, or documentation improvements.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+ - [ROXUM IDE](https://github.com/heckmon/roxum-ide) - A minimal and powerful IDE/Code editor for Android.
 
 ---
 

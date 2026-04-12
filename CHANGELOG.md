@@ -381,4 +381,8 @@ This release establishes **CodeForge** as a powerful, production-ready code edit
   - Enhanced large text handling.
 
 ## 9.8.0
-  - - FIX: LSP initialization bug.
+  -  FIX: LSP initialization bug.
+
+## 9.9.0
+  - FIX: Cursor jump on typing.
+  - FIX: Frozen horizontal scroll on dynamic font size.

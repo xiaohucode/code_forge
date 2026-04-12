@@ -239,7 +239,6 @@ sealed class LspConfig {
   ///
   /// This method is used internally by the [CodeForge] widget and calling it directly is not recommended.
   ///
-  /// If [initialContent] is provided, it will be used as the document content.
   /// Otherwise, the content will be read from [filePath].
   Future<void> openDocument(String filePath) async {
     final version = (_openDocuments[filePath] ?? 0) + 1;
