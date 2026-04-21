@@ -76,7 +76,7 @@ class CodeForgeController implements DeltaTextInputClient {
   Map<int, FoldRange>? _lspFoldRanges;
   bool _lspFoldRangesAdjustedNotFetched = false;
   bool _inlayHintsVisible = false, documentHighlightsChanged = false;
-
+  FocusNode? focusNode;
   CodeForgeController({this.lspConfig}) {
     if (lspConfig != null) {
       (() async {
@@ -2667,7 +2667,11 @@ class CodeForgeController implements DeltaTextInputClient {
   @protected
   @override
   void connectionClosed() {
-    connection = null;
+    if (connection != null && connection!.attached) {
+      connection?.connectionClosedReceived();
+      connection = null;
+      focusNode?.unfocus();
+    }
   }
 
   @protected

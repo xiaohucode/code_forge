@@ -331,6 +331,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
     _controller = widget.controller ?? CodeForgeController();
     _findController = widget.findController ?? FindController(_controller);
     _focusNode = widget.focusNode ?? FocusNode();
+    _controller.focusNode = _focusNode;
     _hscrollController =
         widget.horizontalScrollController ?? ScrollController();
     _vscrollController = widget.verticalScrollController ?? ScrollController();
