@@ -1947,7 +1947,8 @@ class CodeForgeController implements DeltaTextInputClient {
   set text(String newText) {
     _rope = Rope(newText);
     _currentVersion++;
-    _selection = TextSelection.collapsed(offset: newText.length);
+    final offset = readOnly ? 0 : newText.length;
+    _selection = TextSelection.collapsed(offset: offset);
     dirtyRegion = TextRange(start: 0, end: newText.length);
     _isTyping = false;
     notifyListeners();

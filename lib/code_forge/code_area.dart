@@ -95,6 +95,13 @@ class CodeForge extends StatefulWidget {
   /// Defines the font family, size, and other text properties.
   final TextStyle? textStyle;
 
+  /// The appearance of the keyboard.
+  ///
+  /// This setting is only honored on iOS devices.
+  ///
+  /// Defaults to [Brightness.light].
+  final Brightness keyboardAppearance;
+
   /// The text style for ghost text (inline suggestions).
   ///
   /// This style is applied to the semi-transparent suggestion text
@@ -251,6 +258,7 @@ class CodeForge extends StatefulWidget {
     this.readOnly = false,
     this.autoFocus = false,
     this.lineWrap = false,
+    this.keyboardAppearance = Brightness.light,
     this.enableFolding = true,
     this.enableGuideLines = true,
     this.enableSuggestions = true,
@@ -492,6 +500,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
           _connection = TextInput.attach(
             _controller,
             TextInputConfiguration(
+              keyboardAppearance: widget.keyboardAppearance,
               readOnly: widget.readOnly,
               enableDeltaModel: true,
               enableSuggestions: widget.enableKeyboardSuggestions,
@@ -7859,7 +7868,8 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       _lineHeight,
     );
 
-    _bracketHighlightPainter.color = textColor;
+    _bracketHighlightPainter.color = textColor.withValues(alpha: 0.1);
+    _bracketHighlightPainter.style = PaintingStyle.fill;
     canvas.drawRect(bracketRect, _bracketHighlightPainter);
   }
 
